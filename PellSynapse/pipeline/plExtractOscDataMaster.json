@@ -1,0 +1,579 @@
+{
+	"name": "plExtractOscDataMaster",
+	"properties": {
+		"activities": [
+			{
+				"name": "ControlTableForEach",
+				"type": "ForEach",
+				"dependsOn": [
+					{
+						"activity": "QueryControlTable",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@activity('QueryControlTable').output.value",
+						"type": "Expression"
+					},
+					"isSequential": false,
+					"batchCount": 20,
+					"activities": [
+						{
+							"name": "Switch1",
+							"type": "Switch",
+							"dependsOn": [],
+							"userProperties": [],
+							"typeProperties": {
+								"on": {
+									"value": "@string(item().pipelineName)",
+									"type": "Expression"
+								},
+								"cases": [
+									{
+										"value": "ByOffsetLoad",
+										"activities": [
+											{
+												"name": "ExecutePipelineOffsetLoad",
+												"description": "FULL AND DELTA LOAD FOR SMALL OBJ",
+												"type": "ExecutePipeline",
+												"dependsOn": [],
+												"policy": {
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"pipeline": {
+														"referenceName": "plExtractOscDataAnalyticsOffsetLoad",
+														"type": "PipelineReference"
+													},
+													"waitOnCompletion": true,
+													"parameters": {
+														"pMapping": {
+															"value": "@json(item().Mapping)",
+															"type": "Expression"
+														},
+														"pKeyVaultIdPath": {
+															"value": "@pipeline().parameters.pKeyVaultIdPath",
+															"type": "Expression"
+														},
+														"pRequestBody": {
+															"value": "@item().RequestBody",
+															"type": "Expression"
+														},
+														"pApiUrl": {
+															"value": "@item().ApiUrl",
+															"type": "Expression"
+														},
+														"pBaseUrl": {
+															"value": "@item().BaseUrl",
+															"type": "Expression"
+														},
+														"pApplicationContext": {
+															"value": "@item().SourceApplicationContext",
+															"type": "Expression"
+														},
+														"pPaginationLimit": {
+															"value": "@string(item().PaginationLimit)",
+															"type": "Expression"
+														},
+														"pDataLakeDirectory": {
+															"value": "@item().DataLakeDirectory",
+															"type": "Expression"
+														},
+														"pSourceEntityName": {
+															"value": "@item().SourceEntityName",
+															"type": "Expression"
+														},
+														"pSourceExtractMethod": {
+															"value": "@item().SourceExtractMethod",
+															"type": "Expression"
+														},
+														"pSourceServiceName": {
+															"value": "@item().SourceServerName",
+															"type": "Expression"
+														},
+														"pPrimaryKeyName": {
+															"value": "@item().PrimaryKeyName",
+															"type": "Expression"
+														},
+														"pTriggerName": {
+															"value": "@item().TriggerName",
+															"type": "Expression"
+														},
+														"pAzureSQLSecretName": {
+															"value": "@pipeline().parameters.pAzureSQLSecretName",
+															"type": "Expression"
+														},
+														"pAzureSQLSchemaName": {
+															"value": "@item().AuditSchemaName",
+															"type": "Expression"
+														},
+														"pAzureSQLTableName": {
+															"value": "@item().AuditTableName",
+															"type": "Expression"
+														},
+														"pIgnoreFailFlag": {
+															"value": "@item().IgnoreFailFlag",
+															"type": "Expression"
+														},
+														"pQueryParam1": {
+															"value": "@item().ParamName1",
+															"type": "Expression"
+														},
+														"pUnityCatalogName": {
+															"value": "@item().UnityCatalogName",
+															"type": "Expression"
+														},
+														"pStorageAccountName": {
+															"value": "@item().storageAccountName",
+															"type": "Expression"
+														}
+													}
+												}
+											}
+										]
+									},
+									{
+										"value": "ByValueLoad",
+										"activities": [
+											{
+												"name": "ExecutePipelineValueLoad",
+												"type": "ExecutePipeline",
+												"dependsOn": [],
+												"policy": {
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"pipeline": {
+														"referenceName": "plExtractOscDataAnalyticsValueLoad",
+														"type": "PipelineReference"
+													},
+													"waitOnCompletion": true,
+													"parameters": {
+														"pMapping": {
+															"value": "@json(item().Mapping)",
+															"type": "Expression"
+														},
+														"pKeyVaultIdPath": {
+															"value": "@pipeline().parameters.pKeyVaultIdPath",
+															"type": "Expression"
+														},
+														"pRequestBody": {
+															"value": "@item().RequestBody",
+															"type": "Expression"
+														},
+														"pApiUrl": {
+															"value": "@item().Apiurl",
+															"type": "Expression"
+														},
+														"pBaseUrl": {
+															"value": "@item().BaseUrl",
+															"type": "Expression"
+														},
+														"pApplicationContext": {
+															"value": "@item().SourceApplicationContext",
+															"type": "Expression"
+														},
+														"pPaginationLimit": {
+															"value": "@item().PaginationLimit",
+															"type": "Expression"
+														},
+														"pDataLakeDirectory": {
+															"value": "@item().DataLakeDirectory",
+															"type": "Expression"
+														},
+														"pSourceEntityName": {
+															"value": "@item().SourceEntityName",
+															"type": "Expression"
+														},
+														"pSourceExtractMethod": {
+															"value": "@item().SourceExtractMethod",
+															"type": "Expression"
+														},
+														"pMaxRecordLimit": {
+															"value": "@item().RangeEnd",
+															"type": "Expression"
+														},
+														"pPrimaryKeyName": {
+															"value": "@item().PrimaryKeyName",
+															"type": "Expression"
+														},
+														"pSourceServiceName": {
+															"value": "@item().SourceServerName",
+															"type": "Expression"
+														},
+														"pInitalValue": {
+															"value": "@item().RangeStart",
+															"type": "Expression"
+														},
+														"pAzureSQLSchemaName": {
+															"value": "@item().AuditSchemaName",
+															"type": "Expression"
+														},
+														"pAzureSQLTableName": {
+															"value": "@item().AuditTableName",
+															"type": "Expression"
+														},
+														"pAzureSQLSecretName": {
+															"value": "@pipeline().parameters.pAzureSQLSecretName",
+															"type": "Expression"
+														},
+														"pTriggerName": {
+															"value": "@item().TriggerName",
+															"type": "Expression"
+														},
+														"pIgnoreFailFlag": {
+															"value": "@item().IgnoreFailFlag",
+															"type": "Expression"
+														},
+														"pQueryParam1": {
+															"value": "@item().ParamName1",
+															"type": "Expression"
+														},
+														"pUnityCatalogName": {
+															"value": "@item().UnityCatalogName",
+															"type": "Expression"
+														},
+														"pStorageAccountName": {
+															"value": "@item().storageAccountName",
+															"type": "Expression"
+														}
+													}
+												}
+											}
+										]
+									},
+									{
+										"value": "ByDateLoad",
+										"activities": [
+											{
+												"name": "ExecutePipelineDateLoad",
+												"type": "ExecutePipeline",
+												"dependsOn": [],
+												"policy": {
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"pipeline": {
+														"referenceName": "plExtractOscDataAnalyticsDateLoad",
+														"type": "PipelineReference"
+													},
+													"waitOnCompletion": true,
+													"parameters": {
+														"pMapping": {
+															"value": "@json(item().Mapping)",
+															"type": "Expression"
+														},
+														"pKeyVaultIdPath": {
+															"value": "@pipeline().parameters.pKeyVaultIdPath",
+															"type": "Expression"
+														},
+														"pRequestBody": {
+															"value": "@item().RequestBody",
+															"type": "Expression"
+														},
+														"pApiUrl": {
+															"value": "@item().ApiUrl",
+															"type": "Expression"
+														},
+														"pBaseUrl": {
+															"value": "@item().BaseUrl",
+															"type": "Expression"
+														},
+														"pApplicationContext": {
+															"value": "@item().SourceApplicationContext",
+															"type": "Expression"
+														},
+														"pPaginationLimit": {
+															"value": "@item().PaginationLimit",
+															"type": "Expression"
+														},
+														"pDataLakeDirectory": {
+															"value": "@item().DataLakeDirectory",
+															"type": "Expression"
+														},
+														"pSourceEntityName": {
+															"value": "@item().SourceEntityName",
+															"type": "Expression"
+														},
+														"pSourceExtractMethod": {
+															"value": "@item().SourceExtractMethod",
+															"type": "Expression"
+														},
+														"pSourceServiceName": {
+															"value": "@item().SourceServerName",
+															"type": "Expression"
+														},
+														"pPrimaryKeyName": {
+															"value": "@item().PrimaryKeyName",
+															"type": "Expression"
+														},
+														"pUpdatedStartDate": {
+															"value": "@item().RangeStart",
+															"type": "Expression"
+														},
+														"pFinalDate": {
+															"value": "@item().RangeEnd",
+															"type": "Expression"
+														},
+														"pInterval": {
+															"value": "@int(item().RangeInterval)",
+															"type": "Expression"
+														},
+														"pAzureSQLSecretName": {
+															"value": "@pipeline().parameters.pAzureSQLSecretName",
+															"type": "Expression"
+														},
+														"pAzureSQLTableName": {
+															"value": "@item().AuditTableName",
+															"type": "Expression"
+														},
+														"pAzureSQLSchemaName": {
+															"value": "@item().AuditSchemaName",
+															"type": "Expression"
+														},
+														"pIgnoreFailFlag": {
+															"value": "@item().IgnoreFailFlag",
+															"type": "Expression"
+														},
+														"pTriggerName": {
+															"value": "@item().TriggerName",
+															"type": "Expression"
+														},
+														"pQueryParam1": {
+															"value": "@item().ParamName1",
+															"type": "Expression"
+														},
+														"pUnityCatalogName": {
+															"value": "@item().UnityCatalogName",
+															"type": "Expression"
+														},
+														"pStorageAccountName": {
+															"value": "@item().storageAccountName",
+															"type": "Expression"
+														},
+														"pQueryParam2": {
+															"value": "@item().ParamName2",
+															"type": "Expression"
+														}
+													}
+												}
+											}
+										]
+									}
+								],
+								"defaultActivities": [
+									{
+										"name": "ExecutePipelineQuery2",
+										"type": "ExecutePipeline",
+										"dependsOn": [],
+										"policy": {
+											"secureInput": false
+										},
+										"userProperties": [],
+										"typeProperties": {
+											"pipeline": {
+												"referenceName": "plExtractOscDataQuery2",
+												"type": "PipelineReference"
+											},
+											"waitOnCompletion": true,
+											"parameters": {
+												"pKeyVaultIdPath": {
+													"value": "@pipeline().parameters.pKeyVaultIdPath",
+													"type": "Expression"
+												},
+												"pMapping": {
+													"value": "@json(item().Mapping)",
+													"type": "Expression"
+												},
+												"pApiUrl": {
+													"value": "@item().ApiUrl",
+													"type": "Expression"
+												},
+												"pQueryParam1": {
+													"value": "@item().ParamName1",
+													"type": "Expression"
+												},
+												"pQueryValue1": {
+													"value": "@item().ParamValue1",
+													"type": "Expression"
+												},
+												"pFinalId": {
+													"value": "@int(item().FinalId)",
+													"type": "Expression"
+												},
+												"pPaginationLimit": {
+													"value": "@int(item().PaginationLimit)",
+													"type": "Expression"
+												},
+												"pBaseUrl": {
+													"value": "@item().BaseUrl",
+													"type": "Expression"
+												},
+												"pApplicationContext": {
+													"value": "@item().SourceApplicationContext",
+													"type": "Expression"
+												},
+												"pSourceEntity": {
+													"value": "@item().SourceEntityName",
+													"type": "Expression"
+												},
+												"pSourceExtractMethod": {
+													"value": "@item().SourceExtractMethod",
+													"type": "Expression"
+												},
+												"pAzureSQLSecretName": {
+													"value": "@pipeline().parameters.pAzureSQLSecretName",
+													"type": "Expression"
+												},
+												"pAzureSQLSchemaName": {
+													"value": "@pipeline().parameters.pAzureSQLSchemaName",
+													"type": "Expression"
+												},
+												"pAzureSQLTableName": {
+													"value": "@pipeline().parameters.pAzureSQLTableName",
+													"type": "Expression"
+												},
+												"pAuditSchemaName": {
+													"value": "@item().AuditSchemaName",
+													"type": "Expression"
+												},
+												"pAuditTableName": {
+													"value": "@item().AuditTableName",
+													"type": "Expression"
+												},
+												"pPlLastRunDate": {
+													"value": "@item().PipelineLastRunDate",
+													"type": "Expression"
+												},
+												"pTriggerName": {
+													"value": "@pipeline().parameters.pTriggerName",
+													"type": "Expression"
+												},
+												"pIgnoreFailFlag": {
+													"value": "@item().IgnoreFailFlag",
+													"type": "Expression"
+												},
+												"pPrimaryKeyName": {
+													"value": "@item().PrimaryKeyName",
+													"type": "Expression"
+												},
+												"pRangeStart": {
+													"value": "@if(equals(item().SourceExtractMethod, 'DELTA'), item().RangeStart, '0')",
+													"type": "Expression"
+												},
+												"pRangeEnd": {
+													"value": "@if(equals(item().SourceExtractMethod, 'DELTA'), item().RangeEnd, '2023-08-11T00:00:00.0000000Z')",
+													"type": "Expression"
+												},
+												"pDataLakeDirectory": {
+													"value": "@item().DataLakeDirectory",
+													"type": "Expression"
+												},
+												"pRangeEndId": {
+													"value": "@if(or(equals(item().SourceExtractMethod, 'FULL'), equals(item().SourceExtractMethod, 'APPEND')), item().RangeEnd, '')",
+													"type": "Expression"
+												},
+												"pRangeStartId": {
+													"value": "@if(or(equals(item().SourceExtractMethod, 'FULL'), equals(item().SourceExtractMethod, 'APPEND')), item().RangeStart, '')",
+													"type": "Expression"
+												},
+												"pRangeInterval": {
+													"value": "@int(item().RangeInterval)",
+													"type": "Expression"
+												},
+												"pUnityCatalogName": {
+													"value": "@item().UnityCatalogName",
+													"type": "Expression"
+												},
+												"pStorageAccountName": {
+													"value": "@item().StorageAccountName",
+													"type": "Expression"
+												}
+											}
+										}
+									}
+								]
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "QueryControlTable",
+				"type": "Lookup",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "AzureSqlSource",
+						"sqlReaderQuery": {
+							"value": "SELECT cts.TriggerName,\ncts.ApiUrl,\ncts.BaseUrl,\ncts.Mapping,\ncts.PaginationLimit,\ncts.RequestBody,\ncts.DataLakeDirectory,\ncts.ParamName1,\ncts.ParamValue1,\ncts.ParamName2,\ncts.ParamValue2,\ncts.ParamName3,\ncts.ParamValue3,\ncts.IgnoreFailFlag,\ncts.RangeStart,\ncts.RangeEnd,\ncts.PrimaryKeyName,\ncts.RangeEndWatermark,\ncts.RangeInterval,\ncts.SourceExtractMethod,\ncts.AuditSchemaName,\ncts.AuditTableName,\ncts.IsActiveFlag,\ncts.DataLakeDestinationFolder,\ncts.SourceServerName,\ncts.SourceEntityName,\ncts.SourceApplicationContext,\ncts.PipelineLastRunDate,\ncts.pipelineName,\nutc.UnityCatalogName,\nutc.StorageAccountName,\ncts.FinalId\nFrom etl.ControlTableOscToAdls cts\ninner join etl.UnityCatalogConnectionStore utc on cts.IsActiveFlag = utc.IsActiveFlag\nWHERE cts.TriggerName = '@{pipeline().parameters.pTriggerName}'\nAND cts.IsActiveFlag = 'Y';",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "dsAzureSQLParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pSecretName": {
+								"value": "@pipeline().parameters.pAzureSQLSecretName",
+								"type": "Expression"
+							},
+							"pSchemaName": {
+								"value": "@pipeline().parameters.pAzureSQLSchemaName",
+								"type": "Expression"
+							},
+							"pTableName": {
+								"value": "@pipeline().parameters.pAzureSQLTableName",
+								"type": "Expression"
+							}
+						}
+					},
+					"firstRowOnly": false
+				}
+			}
+		],
+		"parameters": {
+			"pTriggerName": {
+				"type": "string",
+				"defaultValue": "trgOscFullLoad"
+			},
+			"pAzureSQLSecretName": {
+				"type": "string",
+				"defaultValue": "DLSqlCntrlConn"
+			},
+			"pAzureSQLSchemaName": {
+				"type": "string",
+				"defaultValue": "etl"
+			},
+			"pAzureSQLTableName": {
+				"type": "string",
+				"defaultValue": "ControlTableOscToAdls"
+			},
+			"pKeyVaultIdPath": {
+				"type": "string",
+				"defaultValue": "https://kvl-keyvlt-usc-dev.vault.azure.net/secrets/OSCToken/2e409d10ae5e4e3fa7f463cdd4e01b63?api-version=7.0"
+			}
+		},
+		"folder": {
+			"name": "Oracle Service Cloud"
+		},
+		"annotations": []
+	}
+}

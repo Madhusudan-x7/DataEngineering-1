@@ -1,0 +1,285 @@
+{
+	"name": "plStatForecastRun",
+	"properties": {
+		"activities": [
+			{
+				"name": "Business Rules Result",
+				"type": "IfCondition",
+				"dependsOn": [
+					{
+						"activity": "ForecastDataBricksNotebook",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@equals('True','True')\n",
+						"type": "Expression"
+					},
+					"ifTrueActivities": [
+						{
+							"name": "plTriggerHyperconnectTask",
+							"type": "ExecutePipeline",
+							"dependsOn": [],
+							"policy": {
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"pipeline": {
+									"referenceName": "plTriggerHyperconnectTask",
+									"type": "PipelineReference"
+								},
+								"waitOnCompletion": true,
+								"parameters": {
+									"pHyperConnectUser": {
+										"value": "@pipeline().parameters.pHyperConnectUser",
+										"type": "Expression"
+									},
+									"pHyperConnectTaskName": {
+										"value": "@pipeline().parameters.pHyperConnectTaskName",
+										"type": "Expression"
+									}
+								}
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "ForecastDataBricksNotebook",
+				"type": "DatabricksNotebook",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"notebookPath": {
+						"value": "@pipeline().parameters.pForecastNotebook",
+						"type": "Expression"
+					},
+					"baseParameters": {
+						"GoldUnityCatalog": {
+							"value": "@pipeline().parameters.pGoldUnityCatalog",
+							"type": "Expression"
+						},
+						"BronzeUnityCatalog": {
+							"value": "@pipeline().parameters.pBronzeUnityCatalog",
+							"type": "Expression"
+						},
+						"VolumeName": {
+							"value": "@pipeline().parameters.pVolumeName",
+							"type": "Expression"
+						},
+						"GoldProcessMgmtName": {
+							"value": "@pipeline().parameters.pGoldProcessMgmtName",
+							"type": "Expression"
+						},
+						"StorageAccountName": {
+							"value": "@pipeline().parameters.pStorageAccount",
+							"type": "Expression"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "lnkAzureDatabricksStatEngine",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "If Condition1",
+				"type": "IfCondition",
+				"dependsOn": [
+					{
+						"activity": "Business Rules Result",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@not(empty(pipeline().parameters.pEmailNotificationGroup))",
+						"type": "Expression"
+					},
+					"ifTrueActivities": [
+						{
+							"name": "SuccessEmail",
+							"type": "WebActivity",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"method": "POST",
+								"url": "https://prod-07.centralus.logic.azure.com:443/workflows/93a8bef4a6614ed5ba41a2b5c01ea9f3/triggers/manual/paths/invoke?api-version=2016-10-01&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=d_f6f3wXPxhUjsW-lejr_Z8Af3cwnpZtFVv2-dsECk8",
+								"connectVia": {
+									"referenceName": "AutoResolveIntegrationRuntime",
+									"type": "IntegrationRuntimeReference"
+								},
+								"body": {
+									"value": "{\"message\":\"StateEngine and Hyperconnect task completed successfully by the pipeline with run ID @{pipeline().RunId}.\",\"dataFactoryName\":\"@{pipeline().DataFactory}\",\"pipelineName\":\"@{pipeline().Pipeline}\",\"receiver\":\"@{pipeline().parameters.pEmailNotificationGroup}\",\"TriggerName\":\"@{pipeline().TriggerName}\"}",
+									"type": "Expression"
+								}
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "If Condition2",
+				"type": "IfCondition",
+				"dependsOn": [
+					{
+						"activity": "Business Rules Result",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@not(empty(pipeline().parameters.pEmailNotificationGroup))",
+						"type": "Expression"
+					},
+					"ifTrueActivities": [
+						{
+							"name": "FailureEmail",
+							"type": "WebActivity",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"method": "POST",
+								"url": "https://prod-07.centralus.logic.azure.com:443/workflows/93a8bef4a6614ed5ba41a2b5c01ea9f3/triggers/manual/paths/invoke?api-version=2016-10-01&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=d_f6f3wXPxhUjsW-lejr_Z8Af3cwnpZtFVv2-dsECk8",
+								"connectVia": {
+									"referenceName": "AutoResolveIntegrationRuntime",
+									"type": "IntegrationRuntimeReference"
+								},
+								"body": {
+									"value": "{\"message\":\"Hyperconnect task failed by the pipeline with run ID @{pipeline().RunId}.\",\"dataFactoryName\":\"@{pipeline().DataFactory}\",\"pipelineName\":\"@{pipeline().Pipeline}\",\"receiver\":\"@{pipeline().parameters.pEmailNotificationGroup}\",\"TriggerName\":\"@{pipeline().TriggerName}\"}",
+									"type": "Expression"
+								}
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "If Condition_statEngine",
+				"type": "IfCondition",
+				"dependsOn": [
+					{
+						"activity": "ForecastDataBricksNotebook",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@not(empty(pipeline().parameters.pEmailNotificationGroup))",
+						"type": "Expression"
+					},
+					"ifTrueActivities": [
+						{
+							"name": "FailureEmail_statEngine",
+							"type": "WebActivity",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"method": "POST",
+								"url": "https://prod-07.centralus.logic.azure.com:443/workflows/93a8bef4a6614ed5ba41a2b5c01ea9f3/triggers/manual/paths/invoke?api-version=2016-10-01&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=d_f6f3wXPxhUjsW-lejr_Z8Af3cwnpZtFVv2-dsECk8",
+								"connectVia": {
+									"referenceName": "AutoResolveIntegrationRuntime",
+									"type": "IntegrationRuntimeReference"
+								},
+								"body": {
+									"value": "{\"message\":\"StatEngine Process failed by the pipeline with run ID @{pipeline().RunId}.\",\"dataFactoryName\":\"@{pipeline().DataFactory}\",\"pipelineName\":\"@{pipeline().Pipeline}\",\"receiver\":\"@{pipeline().parameters.pEmailNotificationGroup}\",\"TriggerName\":\"@{pipeline().TriggerName}\"}",
+									"type": "Expression"
+								}
+							}
+						}
+					]
+				}
+			}
+		],
+		"parameters": {
+			"pGoldUnityCatalog": {
+				"type": "string",
+				"defaultValue": "dev_gold"
+			},
+			"pBronzeUnityCatalog": {
+				"type": "string",
+				"defaultValue": "dev_bronze"
+			},
+			"pHyperConnectTaskName": {
+				"type": "string",
+				"defaultValue": "tf_b_Weekly-DEV"
+			},
+			"pVolumeName": {
+				"type": "string",
+				"defaultValue": "/Volumes/dev_gold/adls/vm_silver_anaplan"
+			},
+			"pGoldProcessMgmtName": {
+				"type": "string",
+				"defaultValue": "process_mgmt"
+			},
+			"pForecastNotebook": {
+				"type": "string",
+				"defaultValue": "/StatEngine/PellaForecastingNotebooks/ForecastStatEngineRun-Main"
+			},
+			"pStorageAccount": {
+				"type": "string",
+				"defaultValue": "stdlalds2uscdev"
+			},
+			"pHyperConnectUser": {
+				"type": "string",
+				"defaultValue": "HyperconnectAgent"
+			},
+			"pEmailNotificationGroup": {
+				"type": "string",
+				"defaultValue": "chandrankg@pella.com;gajendrane@pella.com;tanujabs@pella.com;"
+			}
+		},
+		"variables": {
+			"varNotebook": {
+				"type": "String",
+				"defaultValue": "@pipeline().parameters.pForecastNotebook"
+			}
+		},
+		"folder": {
+			"name": "StatEngine"
+		},
+		"annotations": []
+	}
+}

@@ -1,0 +1,64 @@
+{
+	"name": "plParentSafety",
+	"properties": {
+		"activities": [
+			{
+				"name": "plDimSafety",
+				"type": "ExecutePipeline",
+				"dependsOn": [],
+				"userProperties": [],
+				"typeProperties": {
+					"pipeline": {
+						"referenceName": "plDimSafety",
+						"type": "PipelineReference"
+					},
+					"waitOnCompletion": true
+				}
+			},
+			{
+				"name": "plRefSafety",
+				"type": "ExecutePipeline",
+				"dependsOn": [
+					{
+						"activity": "plDimSafety",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"pipeline": {
+						"referenceName": "plRefSafety",
+						"type": "PipelineReference"
+					},
+					"waitOnCompletion": true
+				}
+			},
+			{
+				"name": "plFactSafety",
+				"type": "ExecutePipeline",
+				"dependsOn": [
+					{
+						"activity": "plRefSafety",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"pipeline": {
+						"referenceName": "plFactSafety",
+						"type": "PipelineReference"
+					},
+					"waitOnCompletion": true
+				}
+			}
+		],
+		"folder": {
+			"name": "SilverGold/Safety"
+		},
+		"annotations": []
+	}
+}

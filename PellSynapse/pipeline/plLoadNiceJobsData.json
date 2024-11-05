@@ -1,0 +1,473 @@
+{
+	"name": "plLoadNiceJobsData",
+	"properties": {
+		"activities": [
+			{
+				"name": "QueryControlTableForLoad",
+				"type": "Lookup",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "AzureSqlSource",
+						"sqlReaderQuery": {
+							"value": "Select cts.*,utc.UnityCatalogName,utc.StorageAccountName,utc.DatabricksScope \nfrom etl.ControlTableNiceJobsAPI cts\ninner join etl.UnityCatalogConnectionStore utc on cts.IsActiveFlag = utc.IsActiveFlag\nWHERE cts.isActiveFlag = 'Y' and cts.TriggerName = 'trgNiceApi'\n;",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "dsAzureSQLParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pSecretName": {
+								"value": "@pipeline().parameters.pAzureSQLSecretName",
+								"type": "Expression"
+							},
+							"pSchemaName": {
+								"value": "@pipeline().parameters.pAzureSQLSchemaName",
+								"type": "Expression"
+							},
+							"pTableName": {
+								"value": "@pipeline().parameters.pAzureSQLTableName",
+								"type": "Expression"
+							}
+						}
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "ControlTableForEach",
+				"type": "ForEach",
+				"dependsOn": [
+					{
+						"activity": "QueryControlTableForLoad",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@activity('QueryControlTableForLoad').output.value",
+						"type": "Expression"
+					},
+					"isSequential": true,
+					"activities": [
+						{
+							"name": "Get API Data",
+							"type": "DatabricksNotebook",
+							"dependsOn": [
+								{
+									"activity": "GenerateAuthBody",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"notebookPath": "/Nice/NiceJobsDataExtraction",
+								"baseParameters": {
+									"AuthPayload": {
+										"value": "grant_type=password&username=@{activity('GetAuthIdSecret').output.value}&password=@{activity('GetAuthSecret').output.value}",
+										"type": "Expression"
+									},
+									"AuthenticateUrl": {
+										"value": "@item().AuthenticateUrl",
+										"type": "Expression"
+									},
+									"JobUrl": {
+										"value": "@item().JobUrl",
+										"type": "Expression"
+									},
+									"EntityName": {
+										"value": "@item().EntityName",
+										"type": "Expression"
+									},
+									"Version": {
+										"value": "@string(item().Version)",
+										"type": "Expression"
+									},
+									"DeltaLastWatermarkDate": {
+										"value": "@item().DeltaLastWatermarkDate",
+										"type": "Expression"
+									},
+									"OldBronzeUnityCatlogName": {
+										"value": "@item().OldBronzeUnityCatlogName",
+										"type": "Expression"
+									},
+									"BronzeUnityCatlogName": {
+										"value": "@item().UnityCatalogName",
+										"type": "Expression"
+									},
+									"OldBronzeUCSchema": {
+										"value": "@item().OldBronzeUCSchema",
+										"type": "Expression"
+									},
+									"BronzeUCSchema": {
+										"value": "@item().BronzeUCSchema",
+										"type": "Expression"
+									},
+									"UCFlag": {
+										"value": "@item().UCFlag",
+										"type": "Expression"
+									},
+									"PrimaryKey": {
+										"value": "@item().PrimaryKey",
+										"type": "Expression"
+									},
+									"OldBronzeTable": {
+										"value": "@item().OldBronzeTable",
+										"type": "Expression"
+									},
+									"OldBronzePath": {
+										"value": "@item().OldBronzePath",
+										"type": "Expression"
+									},
+									"BronzeTable": {
+										"value": "@item().BronzeTable",
+										"type": "Expression"
+									},
+									"BronzePath": {
+										"value": "@item().BronzePath",
+										"type": "Expression"
+									},
+									"ContainerName": {
+										"value": "@item().ContainerName",
+										"type": "Expression"
+									},
+									"StorageAccountName": {
+										"value": "@item().StorageAccountName",
+										"type": "Expression"
+									},
+									"NiceAuthToken": {
+										"value": "@activity('GetAuthToken').output.value",
+										"type": "Expression"
+									},
+									"DeltaDays": {
+										"value": "@item().DeltaDays",
+										"type": "Expression"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "lnkAzureDatabricks",
+								"type": "LinkedServiceReference"
+							}
+						},
+						{
+							"name": "UpdateControlTable",
+							"type": "SqlServerStoredProcedure",
+							"dependsOn": [
+								{
+									"activity": "Set DeltaLastWatermarkDate",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"storedProcedureName": "etl.UpdateControlTableNiceJobsAPI",
+								"storedProcedureParameters": {
+									"BronzeTable": {
+										"value": {
+											"value": "@item().BronzeTable",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"DeltaLastWatermarkDate": {
+										"value": {
+											"value": "@variables('vDeltaLastWatermarkDate')",
+											"type": "Expression"
+										},
+										"type": "String"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "lnkAzureSqlParameterized",
+								"type": "LinkedServiceReference",
+								"parameters": {
+									"SecretName": {
+										"value": "@pipeline().parameters.pAzureSQLSecretName",
+										"type": "Expression"
+									}
+								}
+							}
+						},
+						{
+							"name": "GetAuthIdSecret",
+							"type": "WebActivity",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"method": "GET",
+								"url": {
+									"value": "@pipeline().parameters.pKeyVaultIdPath",
+									"type": "Expression"
+								},
+								"connectVia": {
+									"referenceName": "AutoResolveIntegrationRuntime",
+									"type": "IntegrationRuntimeReference"
+								},
+								"authentication": {
+									"type": "MSI",
+									"resource": "https://vault.azure.net"
+								}
+							}
+						},
+						{
+							"name": "GetAuthSecret",
+							"type": "WebActivity",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"method": "GET",
+								"url": {
+									"value": "@pipeline().parameters.pKeyVaultSecretPath",
+									"type": "Expression"
+								},
+								"connectVia": {
+									"referenceName": "AutoResolveIntegrationRuntime",
+									"type": "IntegrationRuntimeReference"
+								},
+								"authentication": {
+									"type": "MSI",
+									"resource": "https://vault.azure.net"
+								}
+							}
+						},
+						{
+							"name": "GenerateAuthBody",
+							"type": "Switch",
+							"dependsOn": [
+								{
+									"activity": "GetAuthSecret",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								},
+								{
+									"activity": "GetAuthIdSecret",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								},
+								{
+									"activity": "GetAuthIdUser",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								},
+								{
+									"activity": "GetAuthToken",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"userProperties": [],
+							"typeProperties": {
+								"on": {
+									"value": "@pipeline().parameters.pApiAuthUrl",
+									"type": "Expression"
+								},
+								"cases": [
+									{
+										"value": "https://na1.nice-incontact.com/authentication/v1/token/access-key",
+										"activities": [
+											{
+												"name": "SetAuthRequestBody_copy1",
+												"type": "SetVariable",
+												"dependsOn": [],
+												"policy": {
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"variableName": "vAuthRequestBody",
+													"value": {
+														"value": "{\"accessKeyId\":\"@{activity('GetAuthIdSecret').output.value}\",\"accessKeySecret\":\"@{activity('GetAuthSecret').output.value}\"}",
+														"type": "Expression"
+													}
+												}
+											}
+										]
+									}
+								]
+							}
+						},
+						{
+							"name": "Set DeltaLastWatermarkDate",
+							"type": "SetVariable",
+							"dependsOn": [
+								{
+									"activity": "Get API Data",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "vDeltaLastWatermarkDate",
+								"value": {
+									"value": "@activity('Get API Data').output.runOutput",
+									"type": "Expression"
+								}
+							}
+						},
+						{
+							"name": "GetAuthIdUser",
+							"type": "WebActivity",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"method": "GET",
+								"url": {
+									"value": "@pipeline().parameters.pApiAuthUser",
+									"type": "Expression"
+								},
+								"connectVia": {
+									"referenceName": "AutoResolveIntegrationRuntime",
+									"type": "IntegrationRuntimeReference"
+								},
+								"authentication": {
+									"type": "MSI",
+									"resource": "https://vault.azure.net"
+								}
+							}
+						},
+						{
+							"name": "GetAuthToken",
+							"type": "WebActivity",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"method": "GET",
+								"url": {
+									"value": "@pipeline().parameters.pKeyVaultAuthToken",
+									"type": "Expression"
+								},
+								"connectVia": {
+									"referenceName": "AutoResolveIntegrationRuntime",
+									"type": "IntegrationRuntimeReference"
+								},
+								"authentication": {
+									"type": "MSI",
+									"resource": "https://vault.azure.net"
+								}
+							}
+						}
+					]
+				}
+			}
+		],
+		"parameters": {
+			"pAzureSQLSecretName": {
+				"type": "string",
+				"defaultValue": "DLSqlCntrlConn"
+			},
+			"pAzureSQLSchemaName": {
+				"type": "string",
+				"defaultValue": "etl"
+			},
+			"pAzureSQLTableName": {
+				"type": "string",
+				"defaultValue": "Select * from etl.ControlTableNiceRestAPIToSilver cts"
+			},
+			"pKeyVaultIdPath": {
+				"type": "string",
+				"defaultValue": "https://kvl-keyvlt-usc-dev.vault.azure.net/secrets/NiceAccessID/0cf22c549f354dc19596df57cf0998ce?api-version=7.0"
+			},
+			"pKeyVaultSecretPath": {
+				"type": "string",
+				"defaultValue": "https://kvl-keyvlt-usc-dev.vault.azure.net/secrets/NiceAccessSecret/ebf13263646142aa94fee4a7e8e43c8b?api-version=7.0"
+			},
+			"pApiAuthUrl": {
+				"type": "string",
+				"defaultValue": "https://na1.nice-incontact.com/authentication/v1/token/access-key"
+			},
+			"pApiAuthUser": {
+				"type": "string",
+				"defaultValue": "https://kvl-keyvlt-usc-dev.vault.azure.net/secrets/NiceClientId/a8d7547830964a6abf48bb3d9975f905?api-version=7.0"
+			},
+			"pKeyVaultAuthToken": {
+				"type": "string",
+				"defaultValue": "https://kvl-dai-keyvlt-usc-prod.vault.azure.net/secrets/NiceAuthToken/ab2fea1549404df78facd435f0a83bbf?api-version=7.0"
+			}
+		},
+		"variables": {
+			"vAuthRequestBody": {
+				"type": "String"
+			},
+			"vDeltaLastWatermarkDate": {
+				"type": "String"
+			}
+		},
+		"folder": {
+			"name": "Nice"
+		},
+		"annotations": []
+	}
+}

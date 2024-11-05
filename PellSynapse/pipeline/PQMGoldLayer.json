@@ -1,0 +1,138 @@
+{
+	"name": "PQMGoldLayer",
+	"properties": {
+		"activities": [
+			{
+				"name": "GetUnityCatalogParams",
+				"description": "This lookup is used to get unity catalog and storage account name from UnityCatalogConnectionStore table.",
+				"type": "Lookup",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "AzureSqlSource",
+						"sqlReaderQuery": {
+							"value": "SELECT UnityCatalogName, StorageAccountName FROM [etl].[UnityCatalogConnectionStore]",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "dsAzureSQLParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pSecretName": {
+								"value": "@pipeline().parameters.pAzureSQLSecretName",
+								"type": "Expression"
+							},
+							"pSchemaName": {
+								"value": "@pipeline().parameters.pAzureSQLSchemaName",
+								"type": "Expression"
+							},
+							"pTableName": {
+								"value": "@pipeline().parameters.pAzureSQLTableName",
+								"type": "Expression"
+							}
+						}
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "PQMGoldLayer",
+				"type": "DatabricksNotebook",
+				"dependsOn": [
+					{
+						"activity": "GetUnityCatalogParams",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"notebookPath": "/BronzeToSilverDataProcessing/Load_Gold_Tables",
+					"baseParameters": {
+						"SourceServerName": {
+							"value": "@pipeline().parameters.pSourceServerName",
+							"type": "Expression"
+						},
+						"SourceDatabaseName": {
+							"value": "@pipeline().parameters.pSourceDatabaseName",
+							"type": "Expression"
+						},
+						"SourceSchemaName": {
+							"value": "@pipeline().parameters.pSourceSchemaName",
+							"type": "Expression"
+						},
+						"SourceExtractMethod": {
+							"value": "@pipeline().parameters.pSourceExtractMethod",
+							"type": "Expression"
+						},
+						"UnityCatalogName": {
+							"value": "@activity('GetUnityCatalogParams').output.value[0].UnityCatalogName",
+							"type": "Expression"
+						},
+						"StorageAccountName": {
+							"value": "@activity('GetUnityCatalogParams').output.value[0].StorageAccountName",
+							"type": "Expression"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "lnkAzureDatabricks",
+					"type": "LinkedServiceReference"
+				}
+			}
+		],
+		"parameters": {
+			"pAzureSQLSecretName": {
+				"type": "string",
+				"defaultValue": "DLSqlCntrlConn"
+			},
+			"pAzureSQLSchemaName": {
+				"type": "string",
+				"defaultValue": "etl"
+			},
+			"pAzureSQLTableName": {
+				"type": "string",
+				"defaultValue": "UnityCatalogConnectionStore"
+			},
+			"pSourceServerName": {
+				"type": "string",
+				"defaultValue": "devspqmd20"
+			},
+			"pSourceDatabaseName": {
+				"type": "string",
+				"defaultValue": "PellaCenterPoint"
+			},
+			"pSourceSchemaName": {
+				"type": "string",
+				"defaultValue": "dbo"
+			},
+			"pSourceExtractMethod": {
+				"type": "string",
+				"defaultValue": "FULL"
+			}
+		},
+		"folder": {
+			"name": "DataLake"
+		},
+		"annotations": []
+	}
+}

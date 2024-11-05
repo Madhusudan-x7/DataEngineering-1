@@ -1,0 +1,108 @@
+{
+	"name": "plLoadQLIKIntoSilverTables",
+	"properties": {
+		"activities": [
+			{
+				"name": "Load Qlik Into Silver Tables",
+				"type": "DatabricksNotebook",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"notebookPath": "/BronzeToSilverDataProcessing/Stream CDC Bronze to Silver",
+					"baseParameters": {
+						"TriggerName": {
+							"value": "@pipeline().parameters.pTriggerName",
+							"type": "Expression"
+						},
+						"JobType": {
+							"value": "@pipeline().parameters.pJobType",
+							"type": "Expression"
+						},
+						"SqlServer": {
+							"value": "@pipeline().parameters.pAzureSQLServerName",
+							"type": "Expression"
+						},
+						"SqlDb": {
+							"value": "@pipeline().parameters.pAzureSQLDatabaseName",
+							"type": "Expression"
+						},
+						"SqlUser": {
+							"value": "@pipeline().parameters.pAzureSQLUserName",
+							"type": "Expression"
+						},
+						"SecretScope": {
+							"value": "@pipeline().parameters.pDatabricksScope",
+							"type": "Expression"
+						},
+						"SecretKey": {
+							"value": "@pipeline().parameters.pAzureSQLSecretKey",
+							"type": "Expression"
+						},
+						"Timeout": "00:00",
+						"TimeoutMinutes": {
+							"value": "@pipeline().parameters.pTimeoutMinutes",
+							"type": "Expression"
+						}
+					},
+					"libraries": [
+						{
+							"maven": {
+								"coordinates": "com.microsoft.azure:spark-mssql-connector_2.12:1.2.0",
+								"repo": "https://mvnrepository.com/artifact/com.microsoft.azure/spark-mssql-connector"
+							}
+						}
+					]
+				},
+				"linkedServiceName": {
+					"referenceName": "lnkAzureDatabricks",
+					"type": "LinkedServiceReference"
+				}
+			}
+		],
+		"parameters": {
+			"pAzureSQLServerName": {
+				"type": "string",
+				"defaultValue": "sqlsvr-datalake-usc-dev"
+			},
+			"pAzureSQLDatabaseName": {
+				"type": "string",
+				"defaultValue": "sqlsvr-dl-control-usc-dev"
+			},
+			"pAzureSQLUserName": {
+				"type": "string",
+				"defaultValue": "DataLake"
+			},
+			"pDatabricksScope": {
+				"type": "string",
+				"defaultValue": "scp-databricks-usc-dev"
+			},
+			"pAzureSQLSecretKey": {
+				"type": "string",
+				"defaultValue": "DLSqlCntrl"
+			},
+			"pTriggerName": {
+				"type": "string",
+				"defaultValue": "synapse_daily_run"
+			},
+			"pJobType": {
+				"type": "string",
+				"defaultValue": "batch"
+			},
+			"pTimeoutMinutes": {
+				"type": "string",
+				"defaultValue": "60"
+			}
+		},
+		"folder": {
+			"name": "Range Based Promising"
+		},
+		"annotations": []
+	}
+}

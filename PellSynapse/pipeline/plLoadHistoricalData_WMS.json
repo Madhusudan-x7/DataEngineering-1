@@ -1,0 +1,383 @@
+{
+	"name": "plLoadHistoricalData_WMS",
+	"properties": {
+		"activities": [
+			{
+				"name": "WMS_WMS_LICENSE_PLATE_NUMBERS",
+				"type": "Copy",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "OracleSource",
+						"oracleReaderQuery": "select\nLPN_ID ,\nLICENSE_PLATE_NUMBER,\nINVENTORY_ITEM_ID ,\nLAST_UPDATE_DATE,\nLAST_UPDATED_BY,\nCREATION_DATE,\nCREATED_BY,\nORGANIZATION_ID,\nSUBINVENTORY_CODE,\nLOCATOR_ID,\nPARENT_LPN_ID,\nGROSS_WEIGHT_UOM_CODE,\nGROSS_WEIGHT ,\nCONTENT_VOLUME_UOM_CODE,\nCONTENT_VOLUME,\nATTRIBUTE2,\nATTRIBUTE4,\nLPN_CONTEXT,\nOUTERMOST_LPN_ID\nfrom\napps.WMS_LICENSE_PLATE_NUMBERS lpn\nwhere creation_date> sysdate-730\n",
+						"partitionOption": "None",
+						"queryTimeout": "02:00:00"
+					},
+					"sink": {
+						"type": "ParquetSink",
+						"storeSettings": {
+							"type": "AzureBlobFSWriteSettings"
+						},
+						"formatSettings": {
+							"type": "ParquetWriteSettings"
+						}
+					},
+					"enableStaging": false,
+					"translator": {
+						"type": "TabularTranslator",
+						"typeConversion": true,
+						"typeConversionSettings": {
+							"allowDataTruncation": true,
+							"treatBooleanAsNumber": false
+						}
+					}
+				},
+				"inputs": [
+					{
+						"referenceName": "dsOracleParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pSecretName": {
+								"value": "@pipeline().parameters.pWMSSecretName",
+								"type": "Expression"
+							},
+							"pSchemaName": "WMS",
+							"pTableName": "WMS_LICENSE_PLATE_NUMBERS"
+						}
+					}
+				],
+				"outputs": [
+					{
+						"referenceName": "dsADLSParquetParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pDataLakeContainer": {
+								"value": "@pipeline().parameters.pDataLakeContainer",
+								"type": "Expression"
+							},
+							"pDataLakeDirectory": {
+								"value": "@concat(pipeline().parameters.pDataLakeDirectory,'/WMS/WMS.WMS_LICENSE_PLATE_NUMBERS')",
+								"type": "Expression"
+							},
+							"pDataLakeFile": "WMS_LICENSE_PLATE_NUMBERS.parquet"
+						}
+					}
+				]
+			},
+			{
+				"name": "WMS_OE_ORDER_HEADERS_ALL",
+				"type": "Copy",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "OracleSource",
+						"oracleReaderQuery": "select\nHEADER_ID,\nORDER_NUMBER,\nORDER_SOURCE_ID,\nORIG_SYS_DOCUMENT_REF,\nSOLD_TO_ORG_ID,\nSHIP_TO_ORG_ID,\nCREATION_DATE,\nCREATED_BY,\nLAST_UPDATED_BY,\nLAST_UPDATE_DATE,\nATTRIBUTE10,\nATTRIBUTE14,\nGLOBAL_ATTRIBUTE8,\nATTRIBUTE16,\nATTRIBUTE20\nfrom apps.oe_order_headers_all\nwhere trunc(creation_date) > sysdate - 730\nand open_flag = 'Y'\nand (order_source_id <> 10 or (order_source_Id=10 and attribute16 is null))",
+						"partitionOption": "None",
+						"queryTimeout": "02:00:00"
+					},
+					"sink": {
+						"type": "ParquetSink",
+						"storeSettings": {
+							"type": "AzureBlobFSWriteSettings"
+						},
+						"formatSettings": {
+							"type": "ParquetWriteSettings"
+						}
+					},
+					"enableStaging": false,
+					"translator": {
+						"type": "TabularTranslator",
+						"typeConversion": true,
+						"typeConversionSettings": {
+							"allowDataTruncation": true,
+							"treatBooleanAsNumber": false
+						}
+					}
+				},
+				"inputs": [
+					{
+						"referenceName": "dsOracleParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pSecretName": {
+								"value": "@pipeline().parameters.pWMSSecretName",
+								"type": "Expression"
+							},
+							"pSchemaName": "ONT",
+							"pTableName": "OE_ORDER_HEADERS_ALL"
+						}
+					}
+				],
+				"outputs": [
+					{
+						"referenceName": "dsADLSParquetParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pDataLakeContainer": {
+								"value": "@pipeline().parameters.pDataLakeContainer",
+								"type": "Expression"
+							},
+							"pDataLakeDirectory": {
+								"value": "@concat(pipeline().parameters.pDataLakeDirectory,'/WMS/ONT.OE_ORDER_HEADERS_ALL')",
+								"type": "Expression"
+							},
+							"pDataLakeFile": "OE_ORDER_HEADERS_ALL.parquet"
+						}
+					}
+				]
+			},
+			{
+				"name": "WMS_OE_ORDER_LINES_ALL",
+				"type": "Copy",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "OracleSource",
+						"oracleReaderQuery": "select\noel.LINE_ID,\noel.HEADER_ID,\noel.LINE_NUMBER,\noel.ORDERED_ITEM,\noel.SCHEDULE_SHIP_DATE,\noel.CANCELLED_QUANTITY,\noel.SHIPPED_QUANTITY,\noel.ORDERED_QUANTITY,\noel.SHIP_FROM_ORG_ID,\noel.SHIP_TO_ORG_ID,\noel.SOLD_TO_ORG_ID,\noel.INVENTORY_ITEM_ID,\noel.SHIPMENT_NUMBER,\noel.ORIG_SYS_DOCUMENT_REF,\noel.CREATION_DATE,\noel.CREATED_BY,\noel.LAST_UPDATE_DATE,\noel.LAST_UPDATED_BY,\noel.ACTUAL_SHIPMENT_DATE,\noel.SCHEDULE_ARRIVAL_DATE,\noel.ATTRIBUTE17, \noel.global_attribute3,\noel.order_source_id,\noel.freight_carrier_code\nfrom\napps.oe_order_lines_all oel,apps.oe_order_headers_all oeh\nwhere  trunc(oeh.creation_date) > sysdate - 730\nand oeh.open_flag = 'Y'\nand oeh.header_id=oel.header_id\nand (oeh.order_source_id <> 10 or (oeh.order_source_Id=10 and oeh.attribute16 is null))",
+						"partitionOption": "None",
+						"queryTimeout": "02:00:00"
+					},
+					"sink": {
+						"type": "ParquetSink",
+						"storeSettings": {
+							"type": "AzureBlobFSWriteSettings"
+						},
+						"formatSettings": {
+							"type": "ParquetWriteSettings"
+						}
+					},
+					"enableStaging": false,
+					"translator": {
+						"type": "TabularTranslator",
+						"typeConversion": true,
+						"typeConversionSettings": {
+							"allowDataTruncation": true,
+							"treatBooleanAsNumber": false
+						}
+					}
+				},
+				"inputs": [
+					{
+						"referenceName": "dsOracleParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pSecretName": {
+								"value": "@pipeline().parameters.pWMSSecretName",
+								"type": "Expression"
+							},
+							"pSchemaName": "ONT",
+							"pTableName": "OE_ORDER_LINES_ALL"
+						}
+					}
+				],
+				"outputs": [
+					{
+						"referenceName": "dsADLSParquetParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pDataLakeContainer": {
+								"value": "@pipeline().parameters.pDataLakeContainer",
+								"type": "Expression"
+							},
+							"pDataLakeDirectory": {
+								"value": "@concat(pipeline().parameters.pDataLakeDirectory,'/WMS/ONT.OE_ORDER_LINES_ALL')",
+								"type": "Expression"
+							},
+							"pDataLakeFile": "OE_ORDER_LINES_ALL.parquet"
+						}
+					}
+				]
+			},
+			{
+				"name": "WMS_WSH_DELIVERY_DETAILS",
+				"type": "Copy",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "OracleSource",
+						"oracleReaderQuery": "select\nDELIVERY_DETAIL_ID,\nSOURCE_CODE,\nSOURCE_HEADER_ID,\nSOURCE_LINE_ID,\nORGANIZATION_ID,\nRELEASED_STATUS,\nNET_WEIGHT,\nVOLUME,\nATTRIBUTE3,\nATTRIBUTE4,\nATTRIBUTE5,\nATTRIBUTE8,\nATTRIBUTE9,\nCREATION_DATE,\nCREATED_BY,\nLAST_UPDATE_DATE,\nLAST_UPDATED_BY\nfrom apps.wsh_delivery_details\nwhere released_status not in ('X')\nand source_code='OE'\nand source_line_id in (select oel.line_id from\napps.oe_order_lines_all oel,apps.oe_order_headers_all oeh\nwhere trunc(oeh.creation_date) > sysdate - 730\nand oeh.open_flag = 'Y'\nand oeh.header_id=oel.header_id\n and (oeh.order_source_id <> 10 or (oeh.order_source_Id=10 and oeh.attribute16 is null)))",
+						"partitionOption": "None",
+						"queryTimeout": "02:00:00"
+					},
+					"sink": {
+						"type": "ParquetSink",
+						"storeSettings": {
+							"type": "AzureBlobFSWriteSettings"
+						},
+						"formatSettings": {
+							"type": "ParquetWriteSettings"
+						}
+					},
+					"enableStaging": false,
+					"translator": {
+						"type": "TabularTranslator",
+						"typeConversion": true,
+						"typeConversionSettings": {
+							"allowDataTruncation": true,
+							"treatBooleanAsNumber": false
+						}
+					}
+				},
+				"inputs": [
+					{
+						"referenceName": "dsOracleParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pSecretName": {
+								"value": "@pipeline().parameters.pWMSSecretName",
+								"type": "Expression"
+							},
+							"pSchemaName": "WSH",
+							"pTableName": "WSH_DELIVERY_DETAILS"
+						}
+					}
+				],
+				"outputs": [
+					{
+						"referenceName": "dsADLSParquetParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pDataLakeContainer": {
+								"value": "@pipeline().parameters.pDataLakeContainer",
+								"type": "Expression"
+							},
+							"pDataLakeDirectory": {
+								"value": "@concat(pipeline().parameters.pDataLakeDirectory,'/WMS/WSH.WSH_DELIVERY_DETAILS')",
+								"type": "Expression"
+							},
+							"pDataLakeFile": "WSH_DELIVERY_DETAILS.parquet"
+						}
+					}
+				]
+			},
+			{
+				"name": "WMS_PEL_OE_ORDER_LINES_ALL_EXT",
+				"type": "Copy",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "OracleSource",
+						"oracleReaderQuery": "select pel.LINE_ID,\npel.ATTRIBUTE_NAME,\npel.ATTRIBUTE_VALUE\nfrom apps.PEL_OE_ORDER_LINES_ALL_EXT pel, apps.oe_order_lines_all oel,apps.oe_order_headers_all oeh\nwhere pel.line_id = oel.line_id\nand pel.attribute_name in ('INTERMEDIATE_ORG','MFG_INTERNAL_ORDER','INT_INTERNAL_ORDER', 'CUST_ORDER',\n'MFG_DELIVERY_DETAIL_ID','INT_DELIVERY_DETAIL_ID','FINAL_SHIP_ORG','CUST_DELIVERY_DETAIL_ID','MFG_ORG')\nand trunc(oeh.creation_date) > sysdate - 730\nand oeh.open_flag = 'Y'\nand oeh.header_id=oel.header_id\nand oeh.order_source_id <> 10",
+						"partitionOption": "None",
+						"queryTimeout": "02:00:00"
+					},
+					"sink": {
+						"type": "ParquetSink",
+						"storeSettings": {
+							"type": "AzureBlobFSWriteSettings"
+						},
+						"formatSettings": {
+							"type": "ParquetWriteSettings"
+						}
+					},
+					"enableStaging": false,
+					"translator": {
+						"type": "TabularTranslator",
+						"typeConversion": true,
+						"typeConversionSettings": {
+							"allowDataTruncation": true,
+							"treatBooleanAsNumber": false
+						}
+					}
+				},
+				"inputs": [
+					{
+						"referenceName": "dsOracleParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pSecretName": {
+								"value": "@pipeline().parameters.pWMSSecretName",
+								"type": "Expression"
+							},
+							"pSchemaName": "PELLA",
+							"pTableName": "PEL_OE_ORDER_LINES_ALL_EXT"
+						}
+					}
+				],
+				"outputs": [
+					{
+						"referenceName": "dsADLSParquetParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pDataLakeContainer": {
+								"value": "@pipeline().parameters.pDataLakeContainer",
+								"type": "Expression"
+							},
+							"pDataLakeDirectory": {
+								"value": "@concat(pipeline().parameters.pDataLakeDirectory,'/WMS/PELLA.PEL_OE_ORDER_LINES_ALL_EXT')",
+								"type": "Expression"
+							},
+							"pDataLakeFile": "PEL_OE_ORDER_LINES_ALL_EXT.parquet"
+						}
+					}
+				]
+			}
+		],
+		"parameters": {
+			"pEBSSecretName": {
+				"type": "string",
+				"defaultValue": "OracleErpConn"
+			},
+			"pDataLakeContainer": {
+				"type": "string",
+				"defaultValue": "master"
+			},
+			"pDataLakeDirectory": {
+				"type": "string",
+				"defaultValue": "bronze/cdc"
+			},
+			"pWMSSecretName": {
+				"type": "string",
+				"defaultValue": "WmsConn"
+			},
+			"pPOMSSecretName": {
+				"type": "string",
+				"defaultValue": "MiscConn"
+			}
+		},
+		"folder": {
+			"name": "Obsolete/OrderTransparency"
+		},
+		"annotations": []
+	}
+}

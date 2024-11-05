@@ -1,0 +1,275 @@
+{
+	"name": "plProfiseeImportMaster",
+	"properties": {
+		"activities": [
+			{
+				"name": "ForEachEntityGroup",
+				"description": "Groups the entities based on the execution sequence/order [Parent-Child]",
+				"type": "ForEach",
+				"dependsOn": [
+					{
+						"activity": "GetEntityGroups",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@activity('GetEntityGroups').output.value",
+						"type": "Expression"
+					},
+					"isSequential": true,
+					"activities": [
+						{
+							"name": "Execute_ProfiseeLoad_ForEntityGroup",
+							"type": "ExecutePipeline",
+							"dependsOn": [],
+							"userProperties": [],
+							"typeProperties": {
+								"pipeline": {
+									"referenceName": "plProfiseeImport",
+									"type": "PipelineReference"
+								},
+								"waitOnCompletion": true,
+								"parameters": {
+									"pAzureSQLServerName": {
+										"value": "@pipeline().parameters.pAzureSQLServerName",
+										"type": "Expression"
+									},
+									"pAzureSQLDatabaseName": {
+										"value": "@pipeline().parameters.pAzureSQLDatabaseName",
+										"type": "Expression"
+									},
+									"pAzureSQLUserName": {
+										"value": "@pipeline().parameters.pAzureSQLUserName",
+										"type": "Expression"
+									},
+									"pAzureSQLSecretName": {
+										"value": "@pipeline().parameters.pAzureSQLSecretName",
+										"type": "Expression"
+									},
+									"pAzureSQLSchemaName": {
+										"value": "@pipeline().parameters.pAzureSQLSchemaName",
+										"type": "Expression"
+									},
+									"pAzureSQLTableName": {
+										"value": "@pipeline().parameters.pAzureSQLTableName",
+										"type": "Expression"
+									},
+									"pProfiseeHostname": {
+										"value": "@pipeline().parameters.pProfiseeHostname",
+										"type": "Expression"
+									},
+									"pProfiseeDatabase": {
+										"value": "@pipeline().parameters.pProfiseeDatabase",
+										"type": "Expression"
+									},
+									"pProfiseeUsername": {
+										"value": "@pipeline().parameters.pProfiseeUsername",
+										"type": "Expression"
+									},
+									"pProfiseePasswordKey": {
+										"value": "@pipeline().parameters.pProfiseePasswordKey",
+										"type": "Expression"
+									},
+									"pDatabricksScope": {
+										"value": "@pipeline().parameters.pDatabricksScope",
+										"type": "Expression"
+									},
+									"pProfiseeAPIKey": {
+										"value": "@pipeline().parameters.pProfiseeAPIKey",
+										"type": "Expression"
+									},
+									"pProfiseeHostURL": {
+										"value": "@pipeline().parameters.pProfiseeHostURL",
+										"type": "Expression"
+									},
+									"pAzureSQLPasswordSecret": {
+										"value": "@pipeline().parameters.pAzureSQLPasswordSecret",
+										"type": "Expression"
+									},
+									"sequenceId": {
+										"value": "@item().Sequence",
+										"type": "Expression"
+									},
+									"pProfiseePort": {
+										"value": "@pipeline().parameters.pProfiseePort",
+										"type": "Expression"
+									}
+								}
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "GetEntityGroups",
+				"type": "Lookup",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "AzureSqlSource",
+						"sqlReaderQuery": "select distinct Sequence from etl.ControlTableProfisee where Sequence is not null order by Sequence",
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "dsAzureSQLParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pSecretName": {
+								"value": "@pipeline().parameters.pAzureSQLSecretName",
+								"type": "Expression"
+							},
+							"pSchemaName": {
+								"value": "@pipeline().parameters.pAzureSQLSchemaName",
+								"type": "Expression"
+							},
+							"pTableName": {
+								"value": "@pipeline().parameters.pAzureSQLTableName",
+								"type": "Expression"
+							}
+						}
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "Profisee_Export_Silver",
+				"type": "ExecutePipeline",
+				"dependsOn": [
+					{
+						"activity": "ForEachEntityGroup",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"pipeline": {
+						"referenceName": "plProfiseeExport",
+						"type": "PipelineReference"
+					},
+					"waitOnCompletion": true,
+					"parameters": {
+						"pAzureSQLServerName": {
+							"value": "@pipeline().parameters.pAzureSQLServerName",
+							"type": "Expression"
+						},
+						"pAzureSQLDatabaseName": {
+							"value": "@pipeline().parameters.pAzureSQLDatabaseName",
+							"type": "Expression"
+						},
+						"pAzureSQLUserName": {
+							"value": "@pipeline().parameters.pAzureSQLUserName",
+							"type": "Expression"
+						},
+						"pProfiseeHostname": {
+							"value": "@pipeline().parameters.pProfiseeHostname",
+							"type": "Expression"
+						},
+						"pProfiseeDatabase": {
+							"value": "@pipeline().parameters.pProfiseeDatabase",
+							"type": "Expression"
+						},
+						"pProfiseeUsername": {
+							"value": "@pipeline().parameters.pProfiseeUsername",
+							"type": "Expression"
+						},
+						"pProfiseePasswordKey": {
+							"value": "@pipeline().parameters.pProfiseePasswordKey",
+							"type": "Expression"
+						},
+						"pDatabricksScope": {
+							"value": "@pipeline().parameters.pDatabricksScope",
+							"type": "Expression"
+						},
+						"pAzureSQLPasswordSecret": {
+							"value": "@pipeline().parameters.pAzureSQLPasswordSecret",
+							"type": "Expression"
+						}
+					}
+				}
+			}
+		],
+		"parameters": {
+			"pAzureSQLSecretName": {
+				"type": "string",
+				"defaultValue": "DLSqlCntrlConn"
+			},
+			"pAzureSQLSchemaName": {
+				"type": "string",
+				"defaultValue": "etl"
+			},
+			"pAzureSQLServerName": {
+				"type": "string",
+				"defaultValue": "sqlsvr-datalake-usc-dev.database.windows.net"
+			},
+			"pAzureSQLDatabaseName": {
+				"type": "string",
+				"defaultValue": "sqlsvr-dl-control-usc-dev"
+			},
+			"pAzureSQLUserName": {
+				"type": "string",
+				"defaultValue": "DataLake"
+			},
+			"pAzureSQLTableName": {
+				"type": "string",
+				"defaultValue": "ControlTableProfisee"
+			},
+			"pProfiseeHostname": {
+				"type": "string",
+				"defaultValue": "sqlsvr-masterdata-usc-dev.database.windows.net"
+			},
+			"pProfiseeDatabase": {
+				"type": "string",
+				"defaultValue": "Profisee"
+			},
+			"pProfiseeUsername": {
+				"type": "string",
+				"defaultValue": "ProfADFUser"
+			},
+			"pProfiseePasswordKey": {
+				"type": "string",
+				"defaultValue": "ProfiseeADFPwd"
+			},
+			"pDatabricksScope": {
+				"type": "string",
+				"defaultValue": "scp-databricks-usc-dev"
+			},
+			"pProfiseeAPIKey": {
+				"type": "string",
+				"defaultValue": "ProfADFExtAccess"
+			},
+			"pProfiseeHostURL": {
+				"type": "string",
+				"defaultValue": "profiseedev.pella.com"
+			},
+			"pAzureSQLPasswordSecret": {
+				"type": "string",
+				"defaultValue": "DLSqlCntrl"
+			},
+			"pProfiseePort": {
+				"type": "string",
+				"defaultValue": "1433"
+			}
+		},
+		"folder": {
+			"name": "Profisee"
+		},
+		"annotations": [],
+		"lastPublishTime": "2022-01-17T22:33:58Z"
+	},
+	"type": "Microsoft.Synapse/workspaces/pipelines"
+}

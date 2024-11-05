@@ -1,0 +1,80 @@
+{
+	"name": "plDimSafety",
+	"properties": {
+		"activities": [
+			{
+				"name": "populate_dim_cost_center",
+				"type": "DatabricksNotebook",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"notebookPath": "/SilverToGold/Dev/In-Development/populate_dim_cost_center",
+					"baseParameters": {
+						"SourceCatalogName_1": "prod_silver",
+						"SourceSchemaName_1": "profisee",
+						"SourceTableName_1": "gl_cost_center",
+						"SourceCatalogName_2": "dev_silver",
+						"SourceSchemaName_2": "pel_thrive",
+						"SourceTableName_2": "dbo_ss_costcenter_mapping",
+						"TargetCatalogName": "dev_gold",
+						"TargetSchemaName": "edm",
+						"TargetTableName": "dim_cost_center"
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "lnkAzureDatabricks",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "populate_dim_location",
+				"type": "DatabricksNotebook",
+				"dependsOn": [
+					{
+						"activity": "populate_dim_cost_center",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"notebookPath": "/SilverToGold/Dev/In-Development/populate_dim_location",
+					"baseParameters": {
+						"SourceCatalogName_1": "prod_silver",
+						"SourceSchemaName_1": "profisee",
+						"SourceTableName_1": "location",
+						"SourceCatalogName_2": "dev_silver",
+						"SourceSchemaName_2": "pel_thrive",
+						"SourceTableName_2": "dbo_ss_costcenter_mapping",
+						"TargetCatalogName": "dev_gold",
+						"TargetSchemaName": "edm",
+						"TargetTableName": "dim_location"
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "lnkAzureDatabricks",
+					"type": "LinkedServiceReference"
+				}
+			}
+		],
+		"folder": {
+			"name": "SilverGold/Safety/dimSafety"
+		},
+		"annotations": []
+	}
+}

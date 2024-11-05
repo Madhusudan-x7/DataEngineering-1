@@ -1,0 +1,360 @@
+{
+	"name": "plDMSOrderTransparency",
+	"properties": {
+		"activities": [
+			{
+				"name": "Copy from ADLS to DMS",
+				"type": "Copy",
+				"dependsOn": [
+					{
+						"activity": "Call ML Model",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "DelimitedTextSource",
+						"storeSettings": {
+							"type": "AzureBlobFSReadSettings",
+							"recursive": true,
+							"enablePartitionDiscovery": false
+						},
+						"formatSettings": {
+							"type": "DelimitedTextReadSettings"
+						}
+					},
+					"sink": {
+						"type": "SqlServerSink",
+						"preCopyScript": {
+							"value": "TRUNCATE TABLE @{pipeline().parameters.pDMSSchema}.@{pipeline().parameters.pDMSTableName}",
+							"type": "Expression"
+						}
+					},
+					"enableStaging": false,
+					"translator": {
+						"type": "TabularTranslator",
+						"mappings": [
+							{
+								"source": {
+									"name": "Plant",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "Plant",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "PartNum",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "PartNum",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "Destination",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "Destination",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "Reason",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "Reason",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "NoteText",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "NoteText",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "CausedBy",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "CausedBy",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "predictedDays",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "PredictedNumDelqToShipWorkDays",
+									"type": "Int16",
+									"physicalType": "smallint"
+								}
+							},
+							{
+								"source": {
+									"name": "InsertDate",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "InsertDate",
+									"type": "DateTime",
+									"physicalType": "smalldatetime"
+								}
+							},
+							{
+								"source": {
+									"name": "IsRapid",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "IsRapid",
+									"type": "Boolean",
+									"physicalType": "bit"
+								}
+							}
+						],
+						"typeConversion": true,
+						"typeConversionSettings": {
+							"allowDataTruncation": true,
+							"treatBooleanAsNumber": true
+						}
+					}
+				},
+				"inputs": [
+					{
+						"referenceName": "dsADLSCsvParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pDataLakeContainer": {
+								"value": "@pipeline().parameters.pDataLakeContainer",
+								"type": "Expression"
+							},
+							"pDataLakeDirectory": {
+								"value": "@concat(pipeline().parameters.pDataLakeDirectory,'/output/')",
+								"type": "Expression"
+							},
+							"pDataLakeFile": {
+								"value": "@pipeline().parameters.pDataLakeTargetFile",
+								"type": "Expression"
+							}
+						}
+					}
+				],
+				"outputs": [
+					{
+						"referenceName": "dsSqlonPremParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pSecret": {
+								"value": "@pipeline().parameters.pDMSSecret",
+								"type": "Expression"
+							},
+							"pSchemaName": {
+								"value": "@pipeline().parameters.pDMSSchema",
+								"type": "Expression"
+							},
+							"pTableName": {
+								"value": "@pipeline().parameters.pDMSTableName",
+								"type": "Expression"
+							}
+						}
+					}
+				]
+			},
+			{
+				"name": "Copy from DMS To ADLS",
+				"type": "Copy",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "SqlServerSource",
+						"sqlReaderQuery": "  SELECT DISTINCT\n         o.OracleOrderNum,\n         oi.OrderItemID,\n         oi.ItemNum, \n         oi.DateTurnedDelinquent,\n         COALESCE (rsd.RevisedShipDate, oi.RevisedShipDate) RevisedShipDate,\n              mcr.ActualShipDate CustActualShipDate,\n         --(SELECT MIN (sl.ActualShipDate) \n         --   FROM ShipmentHeader sh,ShipmentLine sl \n         --  WHERE oi.OrderItemID=sl.OrderItemId \n            --    AND sl.RouteStopID =sh.RouteStopID \n            --    AND sh.RouteType='CUST') CustActualShipDate,\n         oi.PlantName,\n         sr.Reason DelinquentReason,\n         Note.CausedBy,\n         Note.NoteText,\n         o.Destination,\n         oi.PartNum,\n         sh.RouteCity,\n         mcr.RouteType,\n         sh.RouteStopDest RouteStopDestination,\n         sd.SundayShip,\n         sd.MondayShip,\n         sd.TuesdayShip,\n         sd.WednesdayShip,\n         sd.ThursdayShip,\n         sd.FridayShip,\n         sd.SaturdayShip,\n         dn.RevisedCompDate,\n         o.FullOrderShip,\n         oi.IsRapid\n    FROM [Order] o\n         INNER JOIN OrderItem oi ON o.OrderID = oi.OrderID\n         INNER JOIN Plant ON oi.PlantName = Plant.PlantName\n         --better have a reason if unit went delinquent\n         INNER JOIN ShippingReasons sr ON oi.ShippingReasonID = sr.ShippingReasonID \n         --not all delinquents will get a note  \n         LEFT OUTER JOIN DelinquentNotes dn ON oi.OrderItemID = dn.OrderItemId \n         --not all delinquents will get a note  \n         LEFT OUTER JOIN Note ON dn.NoteID = Note.NoteID  \n         --not all delinquents will get a note/revised date  \n         LEFT OUTER JOIN RevisedShipDateLog rsd ON oi.OrderItemID = rsd.OrderItemID \n            AND CAST (rsd.[TimeStamp] AS SMALLDATETIME) = dn.InsertDate\n                      --AND rsd.RevisedShipDate = oi.RevisedShipDate  --won't work because the OrderItem table gets updated with the latest RevisedShipDate\n                      AND dn.RevisedCompDate < rsd.RevisedShipDate\n         INNER JOIN viewMaxCustomerRoute mcr ON oi.OrderItemID = mcr.OrderItemID              \n         INNER JOIN ShipmentHeader sh ON mcr.RouteStopID = sh.RouteStopID \n         --not all orders have a standard destination  \n         LEFT OUTER JOIN ShippingDOW sd ON o.Destination = sd.Destination \n            --Null values are considered Pella in the ShippingDOW table\n            AND sh.RouteCity = ISNULL (sd.ShipFrom, 'PELLA')  \n   WHERE o.OrderID = oi.OrderID\n     AND oi.DateTurnedDelinquent IS NOT NULL\n     AND mcr.ActualShipDate >= GETDATE () -180 \n     --AND oi.EstShipDate >= GETDATE () -7 --CONVERT (DATETIME, '2021-01-01')\n     --AND o.CustomerPO = '250LZ8477'\n     --AND o.OracleOrderNum = '16670658'\n     --AND oi.ItemNum = 39\n     --AND oi.OrderItemID = 47737191\n     --AND oi.PlantName = 'M03' \nORDER BY o.OracleOrderNum, oi.ItemNum\n",
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"sink": {
+						"type": "ParquetSink",
+						"storeSettings": {
+							"type": "AzureBlobFSWriteSettings"
+						},
+						"formatSettings": {
+							"type": "ParquetWriteSettings"
+						}
+					},
+					"enableStaging": false,
+					"translator": {
+						"type": "TabularTranslator",
+						"typeConversion": true,
+						"typeConversionSettings": {
+							"allowDataTruncation": true,
+							"treatBooleanAsNumber": false
+						}
+					}
+				},
+				"inputs": [
+					{
+						"referenceName": "dsSqlonPremParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pSecret": {
+								"value": "@pipeline().parameters.pDMSSecret",
+								"type": "Expression"
+							},
+							"pSchemaName": "NULL",
+							"pTableName": "NULL"
+						}
+					}
+				],
+				"outputs": [
+					{
+						"referenceName": "dsADLSParquetParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pDataLakeContainer": {
+								"value": "@pipeline().parameters.pDataLakeContainer",
+								"type": "Expression"
+							},
+							"pDataLakeDirectory": {
+								"value": "@concat(pipeline().parameters.pDataLakeDirectory,'/input/')",
+								"type": "Expression"
+							},
+							"pDataLakeFile": "dms_input.parquet"
+						}
+					}
+				]
+			},
+			{
+				"name": "Call ML Model",
+				"type": "DatabricksNotebook",
+				"dependsOn": [
+					{
+						"activity": "Copy from DMS To ADLS",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"notebookPath": "/DataScience/OrderTransparency/OrderTransparency_OTIS_Days_Late_Mod_Train_Cleaned"
+				},
+				"linkedServiceName": {
+					"referenceName": "lnkAzureDatabricks",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "Call IPath ML Model",
+				"type": "DatabricksNotebook",
+				"dependsOn": [
+					{
+						"activity": "Copy from ADLS to DMS",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"notebookPath": "/DataScience/OrderTransparency/Otis_iPath"
+				},
+				"linkedServiceName": {
+					"referenceName": "lnkAzureDatabricks",
+					"type": "LinkedServiceReference"
+				}
+			}
+		],
+		"parameters": {
+			"pDMSSecret": {
+				"type": "string",
+				"defaultValue": "DMSConn"
+			},
+			"pDMSSchema": {
+				"type": "string",
+				"defaultValue": "dbo"
+			},
+			"pDMSTableName": {
+				"type": "string",
+				"defaultValue": "PredictiveModel"
+			},
+			"pDataLakeTargetFile": {
+				"type": "string",
+				"defaultValue": "DMS_LOOKUP.csv"
+			},
+			"pDataLakeContainer": {
+				"type": "string",
+				"defaultValue": "master"
+			},
+			"pDataLakeDirectory": {
+				"type": "string",
+				"defaultValue": "data_science/order_transparency"
+			}
+		},
+		"folder": {
+			"name": "OrderTransparency"
+		},
+		"annotations": []
+	}
+}

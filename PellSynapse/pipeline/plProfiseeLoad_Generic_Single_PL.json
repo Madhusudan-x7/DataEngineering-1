@@ -1,0 +1,632 @@
+{
+	"name": "plProfiseeLoad_Generic_Single_PL",
+	"properties": {
+		"activities": [
+			{
+				"name": "GetRootEntities",
+				"type": "Lookup",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "AzureSqlSource",
+						"sqlReaderQuery": {
+							"value": "select * from etl.ControlTableProfisee_New Where Id = 3",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "dsAzureSQLParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pSecretName": {
+								"value": "@pipeline().parameters.pAzureSQLSecretName",
+								"type": "Expression"
+							},
+							"pSchemaName": {
+								"value": "@pipeline().parameters.pAzureSQLSchemaName",
+								"type": "Expression"
+							},
+							"pTableName": {
+								"value": "@pipeline().parameters.pAzureSQLTableName",
+								"type": "Expression"
+							}
+						}
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "ForEachRootEntity",
+				"type": "ForEach",
+				"dependsOn": [
+					{
+						"activity": "GetRootEntities",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@activity('GetRootEntities').output.value",
+						"type": "Expression"
+					},
+					"isSequential": false,
+					"batchCount": 1,
+					"activities": [
+						{
+							"name": "GL_ProfiseeLoad_Generic",
+							"type": "DatabricksNotebook",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"notebookPath": "/Users/shakyas@pella.com/Profisee_New/Initial_load_profisee_generic_SS_Division_1",
+								"baseParameters": {
+									"ProfiseeHostname": {
+										"value": "@pipeline().parameters.pProfiseeHostname",
+										"type": "Expression"
+									},
+									"ProfiseeDatabase": {
+										"value": "@pipeline().parameters.pProfiseeDatabase",
+										"type": "Expression"
+									},
+									"ProfiseeUsername": {
+										"value": "@pipeline().parameters.pProfiseeUsername",
+										"type": "Expression"
+									},
+									"ProfiseePwd": {
+										"value": "@pipeline().parameters.pProfiseePasswordKey",
+										"type": "Expression"
+									},
+									"ProfiseeScope": {
+										"value": "@pipeline().parameters.pDatabricksScope",
+										"type": "Expression"
+									},
+									"ProfiseeAPIKey": {
+										"value": "@pipeline().parameters.pProfiseeAPIKey",
+										"type": "Expression"
+									},
+									"ProfiseeHostURL": {
+										"value": "@pipeline().parameters.pProfiseeHostURL",
+										"type": "Expression"
+									},
+									"ProfiseeEntityName": {
+										"value": "@item().ProfiseeEntityName",
+										"type": "Expression"
+									},
+									"ProfiseePort": "1433",
+									"HasParent": "Yes",
+									"SourceExtractQuery": {
+										"value": "@item().SourceExtractQuery",
+										"type": "Expression"
+									},
+									"ProfiseeEntityQuery": {
+										"value": "@item().ProfiseeEntityQuery",
+										"type": "Expression"
+									},
+									"ReferencedEntityQuery": {
+										"value": "@string(item().ReferencedEntityQuery)",
+										"type": "Expression"
+									},
+									"ReferencedEntityKeyColumns": {
+										"value": "@item().ReferencedEntityKeyColumns",
+										"type": "Expression"
+									},
+									"ReferencedEntityColAlias": {
+										"value": "@string(item().ReferencedEntityColAlias)",
+										"type": "Expression"
+									},
+									"SourceHashColumns": {
+										"value": "@item().SourceHashColumns",
+										"type": "Expression"
+									},
+									"SourceReferenceJoinColumns": {
+										"value": "@string(item().SourceReferenceJoinColumns)",
+										"type": "Expression"
+									},
+									"SourceEntityJoinColumns": {
+										"value": "@item().SourceEntityJoinColumns",
+										"type": "Expression"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "lnkAzureDatabricks",
+								"type": "LinkedServiceReference"
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "LoadProfiseeToSilver",
+				"type": "DatabricksNotebook",
+				"dependsOn": [
+					{
+						"activity": "ForEachLeafEntity",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"notebookPath": "/BronzeToSilverDataProcessing/Load_Profisee_To_Silver_Tables",
+					"baseParameters": {
+						"ControlTableHostName": {
+							"value": "@pipeline().parameters.pAzureSQLServerName",
+							"type": "Expression"
+						},
+						"ControlTableDatabase": {
+							"value": "@pipeline().parameters.pAzureSQLDatabaseName",
+							"type": "Expression"
+						},
+						"ControlTableUserName": {
+							"value": "@pipeline().parameters.pAzureSQLUserName",
+							"type": "Expression"
+						},
+						"ControlTablePasswordKey": {
+							"value": "@pipeline().parameters.pAzureSQLPasswordSecret",
+							"type": "Expression"
+						},
+						"ProfiseeHostname": {
+							"value": "@pipeline().parameters.pProfiseeHostname",
+							"type": "Expression"
+						},
+						"ProfiseeDatabase": {
+							"value": "@pipeline().parameters.pProfiseeDatabase",
+							"type": "Expression"
+						},
+						"ProfiseeUsername": {
+							"value": "@pipeline().parameters.pProfiseeUsername",
+							"type": "Expression"
+						},
+						"ProfiseePasswordKey": {
+							"value": "@pipeline().parameters.pProfiseePasswordKey",
+							"type": "Expression"
+						},
+						"DatabricksScope": {
+							"value": "@pipeline().parameters.pDatabricksScope",
+							"type": "Expression"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "lnkAzureDatabricks",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "GetEntities",
+				"type": "Lookup",
+				"dependsOn": [
+					{
+						"activity": "ForEachRootEntity",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "AzureSqlSource",
+						"sqlReaderQuery": {
+							"value": "select * from etl.ControlTableProfisee_New where Sequence=1",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "dsAzureSQLParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pSecretName": {
+								"value": "@pipeline().parameters.pAzureSQLSecretName",
+								"type": "Expression"
+							},
+							"pSchemaName": {
+								"value": "@pipeline().parameters.pAzureSQLSchemaName",
+								"type": "Expression"
+							},
+							"pTableName": {
+								"value": "@pipeline().parameters.pAzureSQLTableName",
+								"type": "Expression"
+							}
+						}
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "ForEachEntity",
+				"type": "ForEach",
+				"dependsOn": [
+					{
+						"activity": "GetEntities",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@activity('GetEntities').output.value",
+						"type": "Expression"
+					},
+					"isSequential": false,
+					"batchCount": 1,
+					"activities": [
+						{
+							"name": "GL_ProfiseeLoad_Generic_copy1",
+							"type": "DatabricksNotebook",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"notebookPath": "/Users/shakyas@pella.com/Initial_load_profisee_generic_SS",
+								"baseParameters": {
+									"ProfiseeHostname": {
+										"value": "@pipeline().parameters.pProfiseeHostname",
+										"type": "Expression"
+									},
+									"ProfiseeDatabase": {
+										"value": "@pipeline().parameters.pProfiseeDatabase",
+										"type": "Expression"
+									},
+									"ProfiseeUsername": {
+										"value": "@pipeline().parameters.pProfiseeUsername",
+										"type": "Expression"
+									},
+									"ProfiseePwd": {
+										"value": "@pipeline().parameters.pProfiseePasswordKey",
+										"type": "Expression"
+									},
+									"ProfiseeScope": {
+										"value": "@pipeline().parameters.pDatabricksScope",
+										"type": "Expression"
+									},
+									"ProfiseeAPIKey": {
+										"value": "@pipeline().parameters.pProfiseeAPIKey",
+										"type": "Expression"
+									},
+									"ProfiseeHostURL": {
+										"value": "@pipeline().parameters.pProfiseeHostURL",
+										"type": "Expression"
+									},
+									"ProfiseeEntityName": {
+										"value": "@item().ProfiseeEntityName",
+										"type": "Expression"
+									},
+									"ProfiseePort": "1433",
+									"HasParent": "Yes",
+									"SourceExtractQuery": {
+										"value": "@item().SourceExtractQuery",
+										"type": "Expression"
+									},
+									"ProfiseeEntityQuery": {
+										"value": "@item().ProfiseeEntityQuery",
+										"type": "Expression"
+									},
+									"ReferencedEntityQuery": {
+										"value": "@string(item().ReferencedEntityQuery)",
+										"type": "Expression"
+									},
+									"ReferencedEntityKeyColumns": {
+										"value": "@item().ReferencedEntityKeyColumns",
+										"type": "Expression"
+									},
+									"ReferencedEntityColAlias": {
+										"value": "@string(item().ReferencedEntityColAlias)",
+										"type": "Expression"
+									},
+									"SourceHashColumns": {
+										"value": "@item().SourceHashColumns",
+										"type": "Expression"
+									},
+									"SourceReferenceJoinColumns": {
+										"value": "@string(item().SourceReferenceJoinColumns)",
+										"type": "Expression"
+									},
+									"SourceEntityJoinColumns": {
+										"value": "@item().SourceEntityJoinColumns",
+										"type": "Expression"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "lnkAzureDatabricks",
+								"type": "LinkedServiceReference"
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "GetLeafEntities",
+				"type": "Lookup",
+				"dependsOn": [
+					{
+						"activity": "ForEachEntity",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "AzureSqlSource",
+						"sqlReaderQuery": {
+							"value": "select * from etl.ControlTableProfisee_New where Sequence=2",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "dsAzureSQLParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pSecretName": {
+								"value": "@pipeline().parameters.pAzureSQLSecretName",
+								"type": "Expression"
+							},
+							"pSchemaName": {
+								"value": "@pipeline().parameters.pAzureSQLSchemaName",
+								"type": "Expression"
+							},
+							"pTableName": {
+								"value": "@pipeline().parameters.pAzureSQLTableName",
+								"type": "Expression"
+							}
+						}
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "ForEachLeafEntity",
+				"type": "ForEach",
+				"dependsOn": [
+					{
+						"activity": "GetLeafEntities",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@activity('GetLeafEntities').output.value",
+						"type": "Expression"
+					},
+					"isSequential": false,
+					"batchCount": 1,
+					"activities": [
+						{
+							"name": "GL_ProfiseeLoad_Generic_copy2",
+							"type": "DatabricksNotebook",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"notebookPath": "/Users/shakyas@pella.com/Initial_load_profisee_generic_SS",
+								"baseParameters": {
+									"ProfiseeHostname": {
+										"value": "@pipeline().parameters.pProfiseeHostname",
+										"type": "Expression"
+									},
+									"ProfiseeDatabase": {
+										"value": "@pipeline().parameters.pProfiseeDatabase",
+										"type": "Expression"
+									},
+									"ProfiseeUsername": {
+										"value": "@pipeline().parameters.pProfiseeUsername",
+										"type": "Expression"
+									},
+									"ProfiseePwd": {
+										"value": "@pipeline().parameters.pProfiseePasswordKey",
+										"type": "Expression"
+									},
+									"ProfiseeScope": {
+										"value": "@pipeline().parameters.pDatabricksScope",
+										"type": "Expression"
+									},
+									"ProfiseeAPIKey": {
+										"value": "@pipeline().parameters.pProfiseeAPIKey",
+										"type": "Expression"
+									},
+									"ProfiseeHostURL": {
+										"value": "@pipeline().parameters.pProfiseeHostURL",
+										"type": "Expression"
+									},
+									"ProfiseeEntityName": {
+										"value": "@item().ProfiseeEntityName",
+										"type": "Expression"
+									},
+									"ProfiseePort": "1433",
+									"HasParent": "Yes",
+									"SourceExtractQuery": {
+										"value": "@item().SourceExtractQuery",
+										"type": "Expression"
+									},
+									"ProfiseeEntityQuery": {
+										"value": "@item().ProfiseeEntityQuery",
+										"type": "Expression"
+									},
+									"ReferencedEntityQuery": {
+										"value": "@string(item().ReferencedEntityQuery)",
+										"type": "Expression"
+									},
+									"ReferencedEntityKeyColumns": {
+										"value": "@item().ReferencedEntityKeyColumns",
+										"type": "Expression"
+									},
+									"ReferencedEntityColAlias": {
+										"value": "@string(item().ReferencedEntityColAlias)",
+										"type": "Expression"
+									},
+									"SourceHashColumns": {
+										"value": "@item().SourceHashColumns",
+										"type": "Expression"
+									},
+									"SourceReferenceJoinColumns": {
+										"value": "@string(item().SourceReferenceJoinColumns)",
+										"type": "Expression"
+									},
+									"SourceEntityJoinColumns": {
+										"value": "@item().SourceEntityJoinColumns",
+										"type": "Expression"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "lnkAzureDatabricks",
+								"type": "LinkedServiceReference"
+							}
+						}
+					]
+				}
+			}
+		],
+		"parameters": {
+			"pAzureSQLServerName": {
+				"type": "string",
+				"defaultValue": "sqlsvr-datalake-usc-dev.database.windows.net"
+			},
+			"pAzureSQLDatabaseName": {
+				"type": "string",
+				"defaultValue": "sqlsvr-dl-control-usc-dev"
+			},
+			"pAzureSQLUserName": {
+				"type": "string",
+				"defaultValue": "DataLake"
+			},
+			"pAzureSQLSecretName": {
+				"type": "string",
+				"defaultValue": "DLSqlCntrlConn"
+			},
+			"pAzureSQLSchemaName": {
+				"type": "string",
+				"defaultValue": "etl"
+			},
+			"pAzureSQLTableName": {
+				"type": "string",
+				"defaultValue": "ControlTableProfisee_New"
+			},
+			"pProfiseeADLSLoadTriggerName": {
+				"type": "string",
+				"defaultValue": "trgExtraxctLoadOracleToDataLake_EDW_Dims"
+			},
+			"pProfiseeHostname": {
+				"type": "string",
+				"defaultValue": "sqlsvr-masterdata-usc-dev.database.windows.net"
+			},
+			"pProfiseeDatabase": {
+				"type": "string",
+				"defaultValue": "Profisee"
+			},
+			"pProfiseeUsername": {
+				"type": "string",
+				"defaultValue": "ProfADFUser"
+			},
+			"pProfiseePasswordKey": {
+				"type": "string",
+				"defaultValue": "ProfiseeADFPwd"
+			},
+			"pDatabricksScope": {
+				"type": "string",
+				"defaultValue": "scp-databricks-usc-dev"
+			},
+			"pProfiseeAPIKey": {
+				"type": "string",
+				"defaultValue": "ProfADFExtAccess"
+			},
+			"pProfiseeHostURL": {
+				"type": "string",
+				"defaultValue": "profiseedev.pella.com"
+			},
+			"pAzureSQLPasswordSecret": {
+				"type": "string",
+				"defaultValue": "DLSqlCntrl"
+			},
+			"sequenceId": {
+				"type": "int",
+				"defaultValue": 0
+			}
+		},
+		"variables": {
+			"EntityArray": {
+				"type": "Array",
+				"defaultValue": [
+					0,
+					1,
+					2,
+					3,
+					4
+				]
+			}
+		},
+		"folder": {
+			"name": "Obsolete/Profisee"
+		},
+		"annotations": [],
+		"lastPublishTime": "2022-01-17T22:33:58Z"
+	},
+	"type": "Microsoft.Synapse/workspaces/pipelines"
+}

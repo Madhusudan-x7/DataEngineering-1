@@ -1,0 +1,100 @@
+{
+	"name": "plRangeBasedPromising",
+	"properties": {
+		"activities": [
+			{
+				"name": "Generate EDW Fact Table gold",
+				"type": "DatabricksNotebook",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"notebookPath": "/Reporting/RangeBasedPromising/EDW Fact Table Silver",
+					"baseParameters": {
+						"UnityCatalogName": {
+							"value": "@pipeline().parameters.UnityCatalogName",
+							"type": "Expression"
+						},
+						"ContainerName": {
+							"value": "@pipeline().parameters.ContainerName",
+							"type": "Expression"
+						},
+						"StorageAccountName": {
+							"value": "@pipeline().parameters.StorageAccountName",
+							"type": "Expression"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "lnkAzureDatabricks",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "Load EDW EBS Range Promising Table",
+				"type": "DatabricksNotebook",
+				"dependsOn": [
+					{
+						"activity": "Generate EDW Fact Table gold",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"notebookPath": "/Reporting/RangeBasedPromising/EDW EBS Range Based Promising",
+					"baseParameters": {
+						"UnityCatalogName": {
+							"value": "@pipeline().parameters.UnityCatalogName",
+							"type": "Expression"
+						},
+						"ContainerName": {
+							"value": "@pipeline().parameters.ContainerName",
+							"type": "Expression"
+						},
+						"StorageAccountName": {
+							"value": "@pipeline().parameters.StorageAccountName",
+							"type": "Expression"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "lnkAzureDatabricks",
+					"type": "LinkedServiceReference"
+				}
+			}
+		],
+		"parameters": {
+			"UnityCatalogName": {
+				"type": "string",
+				"defaultValue": "dev_silver"
+			},
+			"ContainerName": {
+				"type": "string",
+				"defaultValue": "master"
+			},
+			"StorageAccountName": {
+				"type": "string",
+				"defaultValue": "stdlalds2uscdev"
+			}
+		},
+		"folder": {
+			"name": "Range Based Promising"
+		},
+		"annotations": []
+	}
+}

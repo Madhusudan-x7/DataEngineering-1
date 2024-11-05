@@ -1,0 +1,36 @@
+{
+	"name": "plDimDate",
+	"properties": {
+		"activities": [
+			{
+				"name": "dim_date",
+				"type": "DatabricksNotebook",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"notebookPath": "/SilverToGold/Dev/In-Development/populate_dim_date",
+					"baseParameters": {
+						"TargetCatalogName": "dev_gold",
+						"TargetSchemaName": "edm",
+						"TargetTableName": "dim_date"
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "lnkAzureDatabricks",
+					"type": "LinkedServiceReference"
+				}
+			}
+		],
+		"folder": {
+			"name": "SilverGold/dimDate"
+		},
+		"annotations": []
+	}
+}

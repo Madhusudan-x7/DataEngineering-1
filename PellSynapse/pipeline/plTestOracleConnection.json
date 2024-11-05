@@ -1,0 +1,43 @@
+{
+	"name": "plTestOracleConnection",
+	"properties": {
+		"activities": [
+			{
+				"name": "plTestOracleConnection",
+				"type": "Lookup",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "OracleSource",
+						"oracleReaderQuery": "select * from apps.Org_Organization_Definitions",
+						"partitionOption": "None",
+						"queryTimeout": "02:00:00"
+					},
+					"dataset": {
+						"referenceName": "dsOracleParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pSecretName": "OracleErpRead",
+							"pSchemaName": "apps",
+							"pTableName": "Org_Organization_Definitions"
+						}
+					}
+				}
+			}
+		],
+		"folder": {
+			"name": "Obsolete/Profisee/testmg"
+		},
+		"annotations": [],
+		"lastPublishTime": "2021-10-26T21:39:18Z"
+	},
+	"type": "Microsoft.Synapse/workspaces/pipelines"
+}

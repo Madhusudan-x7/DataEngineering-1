@@ -1,0 +1,598 @@
+{
+	"name": "plIPATHToDMS",
+	"properties": {
+		"activities": [
+			{
+				"name": "SetCurrentCSTDateTime",
+				"description": "Setting current date time in CST format for setting up watermark for next load",
+				"type": "SetVariable",
+				"dependsOn": [],
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "varCurrentDateTimeCST",
+					"value": {
+						"value": "@formatDateTime(convertTimeZone(utcnow(),'UTC','Central Standard Time'),'yyyy-MM-dd HH:mm:ss')",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "GetSqlTableList",
+				"description": "getting the list of SQL tables from control table stored in Azure SQL",
+				"type": "Lookup",
+				"dependsOn": [
+					{
+						"activity": "SetCurrentCSTDateTime",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "AzureSqlSource",
+						"sqlReaderQuery": {
+							"value": "select cts.*, \nconvert(varchar,isnull(DeltaLastWatermarkDateTime,'1900-01-01'),120) as FormattedLastWatermarkDateTime,\nlssrc.SourceKeyVaultSecretName SourceDatabaseSecret,\nlssrc.SourceServerName SourceServerName,\nlstgt.SourceKeyVaultSecretName TargetDatabaseSecret\nfrom etl.ControlTableDatabaseToDatabase cts \ninner join etl.LinkedServiceConnectionStore lssrc on cts.SourceDatabaseName = lssrc.DatabaseName\ninner join etl.LinkedServiceConnectionStore lstgt on cts.TargetDatabaseName = lstgt.DatabaseName\nwhere cts.SourceType = 'SQLServer'\nand cts.SourceType = lssrc.DatabaseType\nand cts.IsActiveFlag = 'Y'\nand cts.TargetDatabaseName = lstgt.DatabaseName\nand cts.SourceDatabaseName = lssrc.DatabaseName\nand cts.TargetType = lstgt.DatabaseType\nand (PipelineTriggerName = '@{pipeline().parameters.PipelineTriggerName}');",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "dsAzureSQLParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pSecretName": {
+								"value": "@pipeline().parameters.pAzureSQLSecretName",
+								"type": "Expression"
+							},
+							"pSchemaName": {
+								"value": "@pipeline().parameters.pAzureSQLSchemaName",
+								"type": "Expression"
+							},
+							"pTableName": {
+								"value": "@pipeline().parameters.pAzureSQLTableName",
+								"type": "Expression"
+							}
+						}
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "IterateSQLSourceServerTableList",
+				"type": "ForEach",
+				"dependsOn": [
+					{
+						"activity": "GetSqlTableList",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@activity('GetSqlTableList').output.value",
+						"type": "Expression"
+					},
+					"activities": [
+						{
+							"name": "Extraction Method",
+							"type": "Switch",
+							"dependsOn": [],
+							"userProperties": [],
+							"typeProperties": {
+								"on": {
+									"value": "@toUpper(item().SourceExtractMethod)",
+									"type": "Expression"
+								},
+								"cases": [
+									{
+										"value": "SQL",
+										"activities": [
+											{
+												"name": "Copy data from IPath To DMS",
+												"type": "Copy",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "0.12:00:00",
+													"retry": 0,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"source": {
+														"type": "AzureSqlSource",
+														"sqlReaderQuery": {
+															"value": "@{item().SourceExtractSQL}\nWHERE (@{item().DeltaUpdateWatermarkColumnName} IS NOT NULL \nAND @{item().DeltaUpdateWatermarkColumnName} > \nCAST('@{item().FormattedLastWatermarkDateTime}' as datetime2(0)) \nAND @{item().DeltaUpdateWatermarkColumnName} <= \nCAST ('@{variables('varCurrentDateTimeCST')}' as datetime2(0)));",
+															"type": "Expression"
+														},
+														"queryTimeout": "02:00:00",
+														"partitionOption": "None"
+													},
+													"sink": {
+														"type": "SqlServerSink",
+														"writeBehavior": "insert",
+														"sqlWriterUseTableLock": false
+													},
+													"enableStaging": false,
+													"translator": {
+														"type": "TabularTranslator",
+														"typeConversion": true,
+														"typeConversionSettings": {
+															"allowDataTruncation": true,
+															"treatBooleanAsNumber": false
+														}
+													}
+												},
+												"inputs": [
+													{
+														"referenceName": "dsAzureSQLParamAutoIR",
+														"type": "DatasetReference",
+														"parameters": {
+															"pSecretName": "@item().SourceDatabaseSecret",
+															"pSchemaName": "@item().SourceSchemaName",
+															"pTableName": "@item().SourceTableName"
+														}
+													}
+												],
+												"outputs": [
+													{
+														"referenceName": "dsSqlonPremParam",
+														"type": "DatasetReference",
+														"parameters": {
+															"pSecret": {
+																"value": "@item().TargetDatabaseSecret",
+																"type": "Expression"
+															},
+															"pSchemaName": "@item().TargetSchemaName",
+															"pTableName": "@item().TargetTableName"
+														}
+													}
+												]
+											},
+											{
+												"name": "LogCopySuccessDeltaSQL",
+												"type": "Copy",
+												"dependsOn": [
+													{
+														"activity": "Copy data from IPath To DMS",
+														"dependencyConditions": [
+															"Succeeded"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 0,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"source": {
+														"type": "AzureSqlSource",
+														"sqlReaderQuery": {
+															"value": "SELECT '@{pipeline().DataFactory}' as DataFactoryName,\n'@{pipeline().Pipeline}' as PipelineName,\n'@{pipeline().RunId}' as RunId,\n'SQL_To_DataLake' as SourceToTargetType,\n'@{item().SourceExtractMethod}' as SourceExtractMethod,\n'@{item().SourceFullExtractOverrideFlag}' as SourceFullExtractOverrideFlag,\n'@{item().SourceServerName}' as SourceServerName,\n'@{item().SourceDatabaseName}' as SourceDatabaseName,\n'@{item().SourceSchemaName}' as SourceSchemaName,\n'@{item().SourceTableName}' as SourceTableName,\n'@{item().TargetDatabaseName}' as TargetDataLakeContainerName,\n'@{item().TargetSchemaName}' as TargetDirectoryName,\n'@{item().TargetTableName}' as TargetFileName,\n'@{pipeline().TriggerType}' as TriggerType,\n'@{pipeline().TriggerID}' as TriggerId,\n'@{pipeline().TriggerName}' as TriggerName,\n'@{pipeline().TriggerTime}' as TriggerTime,\n'@{activity('Copy data from IPath To DMS').output.rowsCopied}' as RowsCopied,\n'@{activity('Copy data from IPath To DMS').output.rowsRead}' as RowsRead,\n'@{activity('Copy data from IPath To DMS').output.usedParallelCopies}' as NoParallelCopies,\n'@{activity('Copy data from IPath To DMS').output.copyDuration}' as CopyDurationInSecs,\n'@{activity('Copy data from IPath To DMS').output.effectiveIntegrationRuntime}' as effectiveIntegrationRuntime,\n'@{activity('Copy data from IPath To DMS').output.executionDetails[0].source}' as SourceType,\n'@{activity('Copy data from IPath To DMS').output.executionDetails[0].sink}' as SinkType,\n'@{activity('Copy data from IPath To DMS').output.executionDetails[0].status}' as ExecutionStatus,\n'@{activity('Copy data from IPath To DMS').output.executionDetails[0].start}' as CopyActivityStartTime,\n'@{utcnow()}' as CopyActivityEndTime,\n'@{activity('Copy data from IPath To DMS').output.executionDetails[0].detailedDurations.queuingDuration}' as CopyActivityQueuingDurationInSecs,\n'@{activity('Copy data from IPath To DMS').output.executionDetails[0].detailedDurations.timeToFirstByte}' as CopyActivityPreCopyScriptDurationInSecs,\n'@{activity('Copy data from IPath To DMS').output.executionDetails[0].detailedDurations.transferDuration}' as CopyActivityTransferDurationInSecs,\nnull as ErrorMessage",
+															"type": "Expression"
+														},
+														"queryTimeout": "02:00:00",
+														"partitionOption": "None"
+													},
+													"sink": {
+														"type": "AzureSqlSink"
+													},
+													"enableStaging": false,
+													"translator": {
+														"type": "TabularTranslator",
+														"typeConversion": true,
+														"typeConversionSettings": {
+															"allowDataTruncation": true,
+															"treatBooleanAsNumber": false
+														}
+													}
+												},
+												"inputs": [
+													{
+														"referenceName": "dsAzureSQLParam",
+														"type": "DatasetReference",
+														"parameters": {
+															"pSecretName": {
+																"value": "@pipeline().parameters.pAzureSQLSecretName",
+																"type": "Expression"
+															},
+															"pSchemaName": {
+																"value": "@pipeline().parameters.pAzureSQLSchemaName",
+																"type": "Expression"
+															},
+															"pTableName": {
+																"value": "@pipeline().parameters.pAzureSQLTableName",
+																"type": "Expression"
+															}
+														}
+													}
+												],
+												"outputs": [
+													{
+														"referenceName": "dsAzureSQLParam",
+														"type": "DatasetReference",
+														"parameters": {
+															"pSecretName": {
+																"value": "@pipeline().parameters.pAzureSQLSecretName",
+																"type": "Expression"
+															},
+															"pSchemaName": {
+																"value": "@item().AuditSchemaName",
+																"type": "Expression"
+															},
+															"pTableName": {
+																"value": "@item().AuditTableName",
+																"type": "Expression"
+															}
+														}
+													}
+												]
+											},
+											{
+												"name": "LogCopyFailureDeltaSQL",
+												"type": "Copy",
+												"dependsOn": [
+													{
+														"activity": "Copy data from IPath To DMS",
+														"dependencyConditions": [
+															"Failed"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 0,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"source": {
+														"type": "AzureSqlSource",
+														"sqlReaderQuery": {
+															"value": "SELECT '@{pipeline().DataFactory}' as DataFactoryName,\n'@{pipeline().Pipeline}' as PipelineName,\n'@{pipeline().RunId}' as RunId,\n'SQL_To_DataLake' as SourceToTargetType,\n'@{item().SourceExtractMethod}' as SourceExtractMethod,\n'@{item().SourceFullExtractOverrideFlag}' as SourceFullExtractOverrideFlag,\n'@{item().SourceServerName}' as SourceServerName,\n'@{item().SourceDatabaseName}' as SourceDatabaseName,\n'@{item().SourceSchemaName}' as SourceSchemaName,\n'@{item().SourceTableName}' as SourceTableName,\n'@{item().TargetDatabaseName}' as TargetDataLakeContainerName,\n'@{item().TargetSchemaName}' as TargetDirectoryName,\n'@{item().TargetTableName}' as TargetFileName,\n'@{pipeline().TriggerType}' as TriggerType,\n'@{pipeline().TriggerID}' as TriggerId,\n'@{pipeline().TriggerName}' as TriggerName,\n'@{pipeline().TriggerTime}' as TriggerTime,\nnull as RowsCopied,\nnull as RowsRead,\n'@{activity('Copy data from IPath To DMS').output.usedParallelCopies}' as NoParallelCopies,\n'@{activity('Copy data from IPath To DMS').output.copyDuration}' as CopyDurationInSecs,\n'@{activity('Copy data from IPath To DMS').output.effectiveIntegrationRuntime}' as effectiveIntegrationRuntime,\n'@{activity('Copy data from IPath To DMS').output.executionDetails[0].source}' as SourceType,\n'@{activity('Copy data from IPath To DMS').output.executionDetails[0].sink}' as SinkType,\n'@{activity('Copy data from IPath To DMS').output.executionDetails[0].status}' as ExecutionStatus,\n'@{activity('Copy data from IPath To DMS').output.executionDetails[0].start}' as CopyActivityStartTime,\n'@{utcnow()}' as CopyActivityEndTime,\n'' as CopyActivityQueuingDurationInSecs,\n'' as CopyActivityPreCopyScriptDurationInSecs,\n'' as CopyActivityTransferDurationInSecs,\n'@{replace(activity('Copy data from IPath To DMS').output.errors[0].Message,'''','')}' as ErrorMessage",
+															"type": "Expression"
+														},
+														"queryTimeout": "02:00:00",
+														"partitionOption": "None"
+													},
+													"sink": {
+														"type": "AzureSqlSink"
+													},
+													"enableStaging": false,
+													"translator": {
+														"type": "TabularTranslator",
+														"typeConversion": true,
+														"typeConversionSettings": {
+															"allowDataTruncation": true,
+															"treatBooleanAsNumber": false
+														}
+													}
+												},
+												"inputs": [
+													{
+														"referenceName": "dsAzureSQLParam",
+														"type": "DatasetReference",
+														"parameters": {
+															"pSecretName": {
+																"value": "@pipeline().parameters.pAzureSQLSecretName",
+																"type": "Expression"
+															},
+															"pSchemaName": {
+																"value": "@pipeline().parameters.pAzureSQLSchemaName",
+																"type": "Expression"
+															},
+															"pTableName": {
+																"value": "@pipeline().parameters.pAzureSQLTableName",
+																"type": "Expression"
+															}
+														}
+													}
+												],
+												"outputs": [
+													{
+														"referenceName": "dsAzureSQLParam",
+														"type": "DatasetReference",
+														"parameters": {
+															"pSecretName": {
+																"value": "@pipeline().parameters.pAzureSQLSecretName",
+																"type": "Expression"
+															},
+															"pSchemaName": {
+																"value": "@item().AuditSchemaName",
+																"type": "Expression"
+															},
+															"pTableName": {
+																"value": "@item().AuditTableName",
+																"type": "Expression"
+															}
+														}
+													}
+												]
+											}
+										]
+									}
+								]
+							}
+						},
+						{
+							"name": "UpdateControlTable",
+							"type": "SqlServerStoredProcedure",
+							"dependsOn": [
+								{
+									"activity": "Extraction Method",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"storedProcedureName": "etl.UpdateControlTableDatabaseToDatabase",
+								"storedProcedureParameters": {
+									"SourceDatabaseName": {
+										"value": {
+											"value": "@item().SourceDatabaseName",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"SourceSchemaName": {
+										"value": {
+											"value": "@item().SourceSchemaName",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"SourceTableName": {
+										"value": {
+											"value": "@item().SourceTableName",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"SourceType": {
+										"value": {
+											"value": "@item().SourceType",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"TargetDatabaseName": {
+										"value": {
+											"value": "@item().TargetDatabaseName",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"TargetSchemaName": {
+										"value": {
+											"value": "@item().TargetSchemaName",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"TargetTableName": {
+										"value": {
+											"value": "@item().TargetTableName",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"TargetType": {
+										"value": {
+											"value": "@item().TargetType",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"PipelineRunDateTime": {
+										"value": {
+											"value": "@pipeline().TriggerTime",
+											"type": "Expression"
+										},
+										"type": "Datetime"
+									},
+									"WatermarkDateTime": {
+										"value": {
+											"value": "@variables('varCurrentDateTimeCST')",
+											"type": "Expression"
+										},
+										"type": "Datetime"
+									},
+									"SourceExtractMethod": {
+										"value": {
+											"value": "@if(equals(item().SourceFullExtractOverrideFlag,'Y'),'FULL',toUpper(item().SourceExtractMethod))",
+											"type": "Expression"
+										},
+										"type": "String"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "lnkAzureSqlParameterized",
+								"type": "LinkedServiceReference",
+								"parameters": {
+									"SecretName": {
+										"value": "@pipeline().parameters.pAzureSQLSecretName",
+										"type": "Expression"
+									}
+								}
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "GetPostTriggerStoredProcedures",
+				"description": "getting the list of SQL tables from control table stored in Azure SQL",
+				"type": "Lookup",
+				"dependsOn": [
+					{
+						"activity": "IterateSQLSourceServerTableList",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "AzureSqlSource",
+						"sqlReaderQuery": {
+							"value": "select distinct cts.TargetPostProcedure, \nlstgt.SourceKeyVaultSecretName TargetDatabaseSecret\nfrom etl.ControlTableDatabaseToDatabase cts \ninner join etl.LinkedServiceConnectionStore lstgt on cts.TargetDatabaseName = lstgt.DatabaseName\nwhere cts.IsActiveFlag = 'Y'\nand cts.TargetDatabaseName = lstgt.DatabaseName\nand cts.TargetType = lstgt.DatabaseType\nand (PipelineTriggerName = '@{pipeline().parameters.PipelineTriggerName}'\n);",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "dsAzureSQLParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pSecretName": {
+								"value": "@pipeline().parameters.pAzureSQLSecretName",
+								"type": "Expression"
+							},
+							"pSchemaName": {
+								"value": "@pipeline().parameters.pAzureSQLSchemaName",
+								"type": "Expression"
+							},
+							"pTableName": {
+								"value": "@pipeline().parameters.pAzureSQLTableName",
+								"type": "Expression"
+							}
+						}
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "IteratePostTriggerProcedures",
+				"type": "ForEach",
+				"dependsOn": [
+					{
+						"activity": "GetPostTriggerStoredProcedures",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@activity('GetPostTriggerStoredProcedures').output.value",
+						"type": "Expression"
+					},
+					"activities": [
+						{
+							"name": "PostCopyStoredProcedures",
+							"type": "SqlServerStoredProcedure",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"storedProcedureName": {
+									"value": "@item().TargetPostProcedure",
+									"type": "Expression"
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "lnkSQLonPremParameterized",
+								"type": "LinkedServiceReference",
+								"parameters": {
+									"SecretName": {
+										"value": "@item().TargetDatabaseSecret",
+										"type": "Expression"
+									}
+								}
+							}
+						}
+					]
+				}
+			}
+		],
+		"parameters": {
+			"pAzureSQLServerName": {
+				"type": "string",
+				"defaultValue": "sqlsvr-datalake-usc-dev.database.windows.net"
+			},
+			"pAzureSQLDatabaseName": {
+				"type": "string",
+				"defaultValue": "sqldb-dl-control-usc-dev"
+			},
+			"pAzureSQLUserName": {
+				"type": "string",
+				"defaultValue": "DataLake"
+			},
+			"pAzureSQLSecretName": {
+				"type": "string",
+				"defaultValue": "DLSqlCntrlConn"
+			},
+			"pAzureSQLSchemaName": {
+				"type": "string",
+				"defaultValue": "etl"
+			},
+			"pAzureSQLTableName": {
+				"type": "string",
+				"defaultValue": "ControlTableSourceToAdlsLoad"
+			},
+			"PipelineTriggerName": {
+				"type": "string",
+				"defaultValue": "trgCopyIPATHToDMS"
+			},
+			"pDMSSecretName": {
+				"type": "string",
+				"defaultValue": "DMSConn"
+			}
+		},
+		"variables": {
+			"varCurrentDateTimeCST": {
+				"type": "String",
+				"defaultValue": "1900-01-01 00:00:00"
+			}
+		},
+		"folder": {
+			"name": "OrderTransparency"
+		},
+		"annotations": []
+	}
+}

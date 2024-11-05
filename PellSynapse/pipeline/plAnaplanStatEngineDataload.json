@@ -1,0 +1,239 @@
+{
+	"name": "plAnaplanStatEngineDataload",
+	"properties": {
+		"activities": [
+			{
+				"name": "StatEngine Business Rules",
+				"type": "DatabricksNotebook",
+				"dependsOn": [
+					{
+						"activity": "StatEngine ResultSet Audit",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"notebookPath": "/StatEngine/StatEngineBusinessRules",
+					"baseParameters": {
+						"AuditEmailGroup": {
+							"value": "@pipeline().parameters.pAuditEmailGroup",
+							"type": "Expression"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "lnkAzureDatabricks",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "Business Rules Result",
+				"type": "IfCondition",
+				"dependsOn": [
+					{
+						"activity": "StatEngine Business Rules",
+						"dependencyConditions": [
+							"Succeeded",
+							"Failed"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@equals(activity('StatEngine Business Rules').output.runOutput,'True')\n",
+						"type": "Expression"
+					},
+					"ifTrueActivities": [
+						{
+							"name": "Supply Planning DataSets",
+							"type": "DatabricksNotebook",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"notebookPath": "/StatEngine/SupplyPlanningDataSets"
+							},
+							"linkedServiceName": {
+								"referenceName": "lnkAzureDatabricks",
+								"type": "LinkedServiceReference"
+							}
+						},
+						{
+							"name": "plTriggerHyperconnectTask",
+							"type": "ExecutePipeline",
+							"dependsOn": [
+								{
+									"activity": "Demand Planning DataSets",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"userProperties": [],
+							"typeProperties": {
+								"pipeline": {
+									"referenceName": "plTriggerHyperconnectTask",
+									"type": "PipelineReference"
+								},
+								"waitOnCompletion": true,
+								"parameters": {
+									"pHyperConnectUser": {
+										"value": "@pipeline().parameters.pHyperConnectUser",
+										"type": "Expression"
+									},
+									"pHyperConnectTaskName": {
+										"value": "@pipeline().parameters.pHyperConnectTaskName",
+										"type": "Expression"
+									}
+								}
+							}
+						},
+						{
+							"name": "Demand Planning DataSets",
+							"type": "DatabricksNotebook",
+							"dependsOn": [
+								{
+									"activity": "Supply Planning DataSets",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"notebookPath": "/StatEngine/DemandPlanningDataSets"
+							},
+							"linkedServiceName": {
+								"referenceName": "lnkAzureDatabricks",
+								"type": "LinkedServiceReference"
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "StatEngine ResultSet Curation",
+				"type": "DatabricksNotebook",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"notebookPath": "/StatEngine/StatEngineResultSetCuration",
+					"baseParameters": {
+						"AnaplanSupplyPath": {
+							"value": "@pipeline().parameters.pAnaplanSupplyPath",
+							"type": "Expression"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "lnkAzureDatabricks",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "StatEngine ResultSet Audit",
+				"type": "DatabricksNotebook",
+				"dependsOn": [
+					{
+						"activity": "StatEngine ResultSet Curation",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"notebookPath": "/StatEngine/StatEngineResultSetAudit",
+					"baseParameters": {
+						"AnaplanSupplyPath": {
+							"value": "@pipeline().parameters.pAnaplanSupplyPath",
+							"type": "Expression"
+						},
+						"AuditEmailGroup": {
+							"value": "@pipeline().parameters.pAuditEmailGroup",
+							"type": "Expression"
+						},
+						"AnaplanStagingPath": {
+							"value": "@pipeline().parameters.pAnaplanStagingPath",
+							"type": "Expression"
+						}
+					},
+					"libraries": [
+						{
+							"pypi": {
+								"package": "openpyxl"
+							}
+						}
+					]
+				},
+				"linkedServiceName": {
+					"referenceName": "lnkAzureDatabricks",
+					"type": "LinkedServiceReference"
+				}
+			}
+		],
+		"parameters": {
+			"pAnaplanSupplyPath": {
+				"type": "string",
+				"defaultValue": "/mnt/master/silver/anaplan/"
+			},
+			"pHyperConnectUser": {
+				"type": "string",
+				"defaultValue": "HyperconnectAgent"
+			},
+			"pHyperConnectTaskName": {
+				"type": "string",
+				"defaultValue": "tf_b_Weekly-DEV"
+			},
+			"pAuditEmailGroup": {
+				"type": "string",
+				"defaultValue": "statengineresults@pella.com"
+			},
+			"pAnaplanStagingPath": {
+				"type": "string",
+				"defaultValue": "/mnt/master/anaplan_staging/"
+			}
+		},
+		"folder": {
+			"name": "StatEngine"
+		},
+		"annotations": []
+	}
+}

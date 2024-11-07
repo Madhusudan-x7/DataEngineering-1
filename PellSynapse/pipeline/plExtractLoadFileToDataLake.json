@@ -1,0 +1,610 @@
+{
+	"name": "plExtractLoadFileToDataLake",
+	"properties": {
+		"activities": [
+			{
+				"name": "ForEachLocation",
+				"type": "ForEach",
+				"dependsOn": [
+					{
+						"activity": "LookupEPMFTPLocations",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@activity('LookupEPMFTPLocations').output.value",
+						"type": "Expression"
+					},
+					"isSequential": true,
+					"activities": [
+						{
+							"name": "SourceTypeSwitch",
+							"type": "Switch",
+							"dependsOn": [],
+							"userProperties": [],
+							"typeProperties": {
+								"on": {
+									"value": "@item().SourceType",
+									"type": "Expression"
+								},
+								"cases": [
+									{
+										"value": "FTPS",
+										"activities": [
+											{
+												"name": "Copy_from_Pella_FTPS",
+												"type": "Copy",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 0,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"source": {
+														"type": "DelimitedTextSource",
+														"storeSettings": {
+															"type": "FtpReadSettings",
+															"recursive": false,
+															"wildcardFileName": "*",
+															"enablePartitionDiscovery": false,
+															"useBinaryTransfer": false,
+															"disableChunking": false
+														},
+														"formatSettings": {
+															"type": "DelimitedTextReadSettings",
+															"skipLineCount": 0
+														}
+													},
+													"sink": {
+														"type": "DelimitedTextSink",
+														"storeSettings": {
+															"type": "AzureBlobFSWriteSettings",
+															"copyBehavior": "PreserveHierarchy"
+														},
+														"formatSettings": {
+															"type": "DelimitedTextWriteSettings",
+															"quoteAllText": true,
+															"fileExtension": ".txt"
+														}
+													},
+													"enableStaging": false
+												},
+												"inputs": [
+													{
+														"referenceName": "PellaFTPS",
+														"type": "DatasetReference",
+														"parameters": {
+															"container": {
+																"value": "@concat(item().SourceDatabaseName,'/',item().SourceTableName)",
+																"type": "Expression"
+															},
+															"lHostName": {
+																"value": "@Item().SourceServerName",
+																"type": "Expression"
+															},
+															"lPort": {
+																"value": "@Item().Port",
+																"type": "Expression"
+															},
+															"lUserName": {
+																"value": "@Item().SourceUserName",
+																"type": "Expression"
+															},
+															"lSecretName": {
+																"value": "@Item().SourceKeyVaultSecretName",
+																"type": "Expression"
+															}
+														}
+													}
+												],
+												"outputs": [
+													{
+														"referenceName": "FinancialADLS2",
+														"type": "DatasetReference",
+														"parameters": {
+															"container": {
+																"value": "@item().DataLakeDestinationContainer",
+																"type": "Expression"
+															},
+															"path": {
+																"value": "@concat(item().DataLakeDestinationFolder,'/',item().SourceSchemaName,'/',item().SourceTableName)",
+																"type": "Expression"
+															}
+														}
+													}
+												]
+											},
+											{
+												"name": "Load_Silver_Tables_FTPS",
+												"type": "DatabricksNotebook",
+												"dependsOn": [
+													{
+														"activity": "Copy_from_Pella_FTPS",
+														"dependencyConditions": [
+															"Succeeded"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 0,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"notebookPath": "/BronzeToSilverDataProcessing/Load_Silver_File_To_ADLS",
+													"baseParameters": {
+														"BronzePath": {
+															"value": "@item().BronzePath",
+															"type": "Expression"
+														},
+														"SourceFileFormat": {
+															"value": "@item().SourceFileFormat",
+															"type": "Expression"
+														},
+														"ColList": {
+															"value": "@item().ColumnList",
+															"type": "Expression"
+														},
+														"FilterColumn": {
+															"value": "@item().FilterColumn",
+															"type": "Expression"
+														},
+														"FixColumn": {
+															"value": "@item().FixColumn",
+															"type": "Expression"
+														},
+														"Dic": {
+															"value": "@item().Dic",
+															"type": "Expression"
+														},
+														"DataAction": {
+															"value": "@item().DataAction",
+															"type": "Expression"
+														},
+														"FileDelimiter": {
+															"value": "@item().FileDelimiter",
+															"type": "Expression"
+														},
+														"Header": {
+															"value": "@item().Header",
+															"type": "Expression"
+														},
+														"UnityCatalogName": {
+															"value": "@item().UnityCatalogName",
+															"type": "Expression"
+														},
+														"UCFlag": {
+															"value": "@item().UCFlag",
+															"type": "Expression"
+														},
+														"UCSchemaPrefix": {
+															"value": "@item().UCSchemaPrefix",
+															"type": "Expression"
+														},
+														"BronzeDestinationContainer": {
+															"value": "@item().BronzeDestinationContainer",
+															"type": "Expression"
+														},
+														"StorageAccountName": {
+															"value": "@item().StorageAccountName",
+															"type": "Expression"
+														},
+														"SourceType": {
+															"value": "@item().SourceType",
+															"type": "Expression"
+														},
+														"SourceSchemaName": {
+															"value": "@item().SourceSchemaName",
+															"type": "Expression"
+														},
+														"SourceTableName": {
+															"value": "@item().SourceTableName",
+															"type": "Expression"
+														},
+														"DataLakeDestinationContainer": {
+															"value": "@item().DataLakeDestinationContainer",
+															"type": "Expression"
+														},
+														"DataLakeDestinationFolder": {
+															"value": "@item().DataLakeDestinationFolder",
+															"type": "Expression"
+														},
+														"BronzeSchema": {
+															"value": "@item().Bronze_schema",
+															"type": "Expression"
+														},
+														"SourceStorageAccountName": {
+															"value": "@item().SourceStorageAccountName",
+															"type": "Expression"
+														}
+													}
+												},
+												"linkedServiceName": {
+													"referenceName": "lnkAzureDatabricks",
+													"type": "LinkedServiceReference"
+												}
+											},
+											{
+												"name": "Append variable FTP",
+												"type": "AppendVariable",
+												"dependsOn": [
+													{
+														"activity": "Load_Silver_Tables_FTPS",
+														"dependencyConditions": [
+															"Succeeded"
+														]
+													}
+												],
+												"userProperties": [],
+												"typeProperties": {
+													"variableName": "vNotebookStatus",
+													"value": {
+														"value": "@activity('Load_Silver_Tables_FTPS').output.runOutput.Status",
+														"type": "Expression"
+													}
+												}
+											}
+										]
+									},
+									{
+										"value": "FTP_ADLS",
+										"activities": [
+											{
+												"name": "Load_Silver_Tables_FTPADLS",
+												"type": "DatabricksNotebook",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 0,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"notebookPath": "/BronzeToSilverDataProcessing/Load_Silver_File_To_ADLS",
+													"baseParameters": {
+														"BronzePath": {
+															"value": "@item().BronzePath",
+															"type": "Expression"
+														},
+														"SourceFileFormat": {
+															"value": "@item().SourceFileFormat",
+															"type": "Expression"
+														},
+														"ColList": {
+															"value": "@item().ColumnList",
+															"type": "Expression"
+														},
+														"FilterColumn": {
+															"value": "@item().FilterColumn",
+															"type": "Expression"
+														},
+														"FixColumn": {
+															"value": "@item().FixColumn",
+															"type": "Expression"
+														},
+														"Dic": {
+															"value": "@item().Dic",
+															"type": "Expression"
+														},
+														"DataAction": {
+															"value": "@item().DataAction",
+															"type": "Expression"
+														},
+														"FileDelimiter": {
+															"value": "@item().FileDelimiter",
+															"type": "Expression"
+														},
+														"Header": {
+															"value": "@item().Header",
+															"type": "Expression"
+														},
+														"UnityCatalogName": {
+															"value": "@item().UnityCatalogName",
+															"type": "Expression"
+														},
+														"UCFlag": {
+															"value": "@item().UCFlag",
+															"type": "Expression"
+														},
+														"UCSchemaPrefix": {
+															"value": "@item().UCSchemaPrefix",
+															"type": "Expression"
+														},
+														"BronzeDestinationContainer": {
+															"value": "@item().BronzeDestinationContainer",
+															"type": "Expression"
+														},
+														"StorageAccountName": {
+															"value": "@item().StorageAccountName",
+															"type": "Expression"
+														},
+														"SourceType": {
+															"value": "@item().SourceType",
+															"type": "Expression"
+														},
+														"SourceSchemaName": {
+															"value": "@item().SourceSchemaName",
+															"type": "Expression"
+														},
+														"SourceTableName": {
+															"value": "@item().SourceTableName",
+															"type": "Expression"
+														},
+														"DataLakeDestinationContainer": {
+															"value": "@item().DataLakeDestinationContainer",
+															"type": "Expression"
+														},
+														"DataLakeDestinationFolder": {
+															"value": "@item().DataLakeDestinationFolder",
+															"type": "Expression"
+														},
+														"BronzeSchema": {
+															"value": "@item().Bronze_schema",
+															"type": "Expression"
+														},
+														"SourceStorageAccountName": {
+															"value": "@item().SourceStorageAccountName",
+															"type": "Expression"
+														}
+													}
+												},
+												"linkedServiceName": {
+													"referenceName": "lnkAzureDatabricks",
+													"type": "LinkedServiceReference"
+												}
+											},
+											{
+												"name": "Append variable FTP_ADLS",
+												"type": "AppendVariable",
+												"dependsOn": [
+													{
+														"activity": "Load_Silver_Tables_FTPADLS",
+														"dependencyConditions": [
+															"Succeeded"
+														]
+													}
+												],
+												"userProperties": [],
+												"typeProperties": {
+													"variableName": "vNotebookStatus",
+													"value": {
+														"value": "@activity('Load_Silver_Tables_FTPADLS').output.runOutput.Status",
+														"type": "Expression"
+													}
+												}
+											}
+										]
+									}
+								]
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "LookupEPMFTPLocations",
+				"type": "Lookup",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "AzureSqlSource",
+						"sqlReaderQuery": {
+							"value": "select a.*, b.UnityCatalogName, b.StorageAccountName\nfrom etl.ControlTableFileToAdlsLoad a\ninner join [etl].[UnityCatalogConnectionStore] b\non a.IsActiveFlag = b.IsActiveFlag\nwhere a.IsActiveFlag = 'Y'\nand PipelineTriggerName = '@{pipeline().parameters.pPipelineTriggerName}'\n",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "dsAzureSQLParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pSecretName": {
+								"value": "@pipeline().parameters.pAzureSQLSecretName",
+								"type": "Expression"
+							},
+							"pSchemaName": {
+								"value": "@pipeline().parameters.pAzureSQLSecretName",
+								"type": "Expression"
+							},
+							"pTableName": {
+								"value": "@pipeline().parameters.pAzureSQLTableName",
+								"type": "Expression"
+							}
+						}
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "If Condition2",
+				"type": "IfCondition",
+				"dependsOn": [
+					{
+						"activity": "Set Status",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@not(empty(pipeline().parameters.pEmailNotificationGroup))",
+						"type": "Expression"
+					},
+					"ifTrueActivities": [
+						{
+							"name": "SuccessEmail",
+							"type": "WebActivity",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"method": "POST",
+								"url": "https://prod-07.centralus.logic.azure.com:443/workflows/93a8bef4a6614ed5ba41a2b5c01ea9f3/triggers/manual/paths/invoke?api-version=2016-10-01&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=d_f6f3wXPxhUjsW-lejr_Z8Af3cwnpZtFVv2-dsECk8",
+								"connectVia": {
+									"referenceName": "AutoResolveIntegrationRuntime",
+									"type": "IntegrationRuntimeReference"
+								},
+								"body": {
+									"value": "{\"message\": \"@{variables('vNotebookStatusString')}\n by the pipeline with run ID @{pipeline().RunId}.\",\n\"dataFactoryName\":\"@{pipeline().DataFactory}\",\n\"pipelineName\":\"@{pipeline().Pipeline}\",\n\"receiver\":\"@{pipeline().parameters.pEmailNotificationGroup}\",\n\"triggerName\":\"@{pipeline().parameters.pPipelineTriggerName}\"}\n\n\n\n",
+									"type": "Expression"
+								}
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "If Condition3",
+				"type": "IfCondition",
+				"dependsOn": [
+					{
+						"activity": "ForEachLocation",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@not(empty(pipeline().parameters.pEmailNotificationGroup))",
+						"type": "Expression"
+					},
+					"ifTrueActivities": [
+						{
+							"name": "FailureEmail",
+							"type": "WebActivity",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"method": "POST",
+								"url": "https://prod-07.centralus.logic.azure.com:443/workflows/93a8bef4a6614ed5ba41a2b5c01ea9f3/triggers/manual/paths/invoke?api-version=2016-10-01&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=d_f6f3wXPxhUjsW-lejr_Z8Af3cwnpZtFVv2-dsECk8",
+								"connectVia": {
+									"referenceName": "AutoResolveIntegrationRuntime",
+									"type": "IntegrationRuntimeReference"
+								},
+								"body": {
+									"message": "A file upload failed in the pipeline with run ID @{pipeline().RunId}.",
+									"dataFactoryName": "@{pipeline().DataFactory}",
+									"pipelineName": "@{pipeline().Pipeline}",
+									"receiver": "@{pipeline().parameters.pEmailNotificationGroup}",
+									"triggerName": "@{pipeline().parameters.pPipelineTriggerName}"
+								}
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "Set Status",
+				"type": "SetVariable",
+				"dependsOn": [
+					{
+						"activity": "ForEachLocation",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "vNotebookStatusString",
+					"value": {
+						"value": "@replace(replace(replace(replace(replace(string(variables('vNotebookStatus')),'\\',''),']',''),'\"',''),'[',''),'/','')",
+						"type": "Expression"
+					}
+				}
+			}
+		],
+		"parameters": {
+			"pAzureSQLServerName": {
+				"type": "string",
+				"defaultValue": "sqlsvr-datalake-usc-dev.database.windows.net"
+			},
+			"pAzureSQLDatabaseName": {
+				"type": "string",
+				"defaultValue": "sqldb-control-usc-dev"
+			},
+			"pAzureSQLUserName": {
+				"type": "string",
+				"defaultValue": "DataLake"
+			},
+			"pAzureSQLSecretName": {
+				"type": "string",
+				"defaultValue": "DLSqlCntrlConn"
+			},
+			"pAzureSQLSchemaName": {
+				"type": "string",
+				"defaultValue": "etl"
+			},
+			"pAzureSQLTableName": {
+				"type": "string",
+				"defaultValue": "ControlTableFileToAdlsLoad"
+			},
+			"pPipelineTriggerName": {
+				"type": "string",
+				"defaultValue": "trgHcmLoad"
+			},
+			"pEmailNotificationGroup": {
+				"type": "string"
+			},
+			"pTriggeringFile": {
+				"type": "string",
+				"defaultValue": "Emp_Var_File_Template.csv"
+			}
+		},
+		"variables": {
+			"vNotebookStatus": {
+				"type": "Array"
+			},
+			"vNotebookStatusString": {
+				"type": "String"
+			}
+		},
+		"folder": {
+			"name": "DataLake"
+		},
+		"annotations": []
+	}
+}

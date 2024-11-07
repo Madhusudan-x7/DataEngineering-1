@@ -1,0 +1,1559 @@
+{
+	"name": "plNiceRestAPIPaginationData",
+	"properties": {
+		"activities": [
+			{
+				"name": "Current_time",
+				"type": "SetVariable",
+				"dependsOn": [],
+				"policy": {
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "vCurrentTime",
+					"value": {
+						"value": "@utcNow()",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "LoadDeltaLakeSilver",
+				"type": "DatabricksNotebook",
+				"dependsOn": [
+					{
+						"activity": "ForEachParam",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"notebookPath": {
+						"value": "@variables('vNotebookPath')",
+						"type": "Expression"
+					},
+					"baseParameters": {
+						"ZOrderColumnList": {
+							"value": "@pipeline().parameters.pZOrderColumnList",
+							"type": "Expression"
+						},
+						"SourceServiceName": {
+							"value": "@pipeline().parameters.pServiceName",
+							"type": "Expression"
+						},
+						"SourceEntityName": {
+							"value": "@pipeline().parameters.pSourceEntityName",
+							"type": "Expression"
+						},
+						"SourceBronzePath": {
+							"value": "@{\nconcat(\npipeline().parameters.pApiUrl,\nconcat('/', formatDateTime(variables('vCurrentTime'), 'yyyy/MM/dd_HH_mm')),\n'/'\n)}",
+							"type": "Expression"
+						},
+						"CurrentDate": {
+							"value": "@variables('vCurrentTime')",
+							"type": "Expression"
+						},
+						"DateSet": {
+							"value": "@string(pipeline().parameters.pParams)",
+							"type": "Expression"
+						},
+						"StartDate": {
+							"value": "@variables('vInitalStartDate')",
+							"type": "Expression"
+						},
+						"UnityCatalogName": {
+							"value": "@pipeline().parameters.pUnityCatalogName",
+							"type": "Expression"
+						},
+						"StorageAccountName": {
+							"value": "@pipeline().parameters.pStorageAccountName",
+							"type": "Expression"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "lnkAzureDatabricks",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "ForEachParam",
+				"type": "ForEach",
+				"dependsOn": [
+					{
+						"activity": "Current_time",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@pipeline().parameters.pParams",
+						"type": "Expression"
+					},
+					"isSequential": true,
+					"activities": [
+						{
+							"name": "GetAuthIdSecret",
+							"type": "WebActivity",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"method": "GET",
+								"url": {
+									"value": "@pipeline().parameters.pKeyVaultIdPath",
+									"type": "Expression"
+								},
+								"connectVia": {
+									"referenceName": "AutoResolveIntegrationRuntime",
+									"type": "IntegrationRuntimeReference"
+								},
+								"authentication": {
+									"type": "MSI",
+									"resource": "https://vault.azure.net"
+								}
+							}
+						},
+						{
+							"name": "GetAuthSecret",
+							"type": "WebActivity",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"method": "GET",
+								"url": {
+									"value": "@pipeline().parameters.pKeyVaultSecretPath",
+									"type": "Expression"
+								},
+								"connectVia": {
+									"referenceName": "AutoResolveIntegrationRuntime",
+									"type": "IntegrationRuntimeReference"
+								},
+								"authentication": {
+									"type": "MSI",
+									"resource": "https://vault.azure.net"
+								}
+							}
+						},
+						{
+							"name": "Authenticate",
+							"type": "WebActivity",
+							"dependsOn": [
+								{
+									"activity": "SetApiUrlWithQueryParam4",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"method": "POST",
+								"headers": {
+									"Content-Type": "application/x-www-form-urlencoded"
+								},
+								"url": {
+									"value": "@pipeline().parameters.pApiAuthUrl",
+									"type": "Expression"
+								},
+								"connectVia": {
+									"referenceName": "AutoResolveIntegrationRuntime",
+									"type": "IntegrationRuntimeReference"
+								},
+								"body": {
+									"value": "grant_type=password&username=@{activity('GetAuthIdSecret').output.value}&password=@{activity('GetAuthSecret').output.value}",
+									"type": "Expression"
+								},
+								"authentication": {
+									"type": "Basic",
+									"username": {
+										"value": "@activity('GetAuthIdUser').output.value",
+										"type": "Expression"
+									},
+									"password": {
+										"type": "AzureKeyVaultSecret",
+										"store": {
+											"referenceName": "lnkAzureKeyVault",
+											"type": "LinkedServiceReference"
+										},
+										"secretName": "NiceClientSecret"
+									}
+								}
+							}
+						},
+						{
+							"name": "SetAccessToken",
+							"type": "SetVariable",
+							"dependsOn": [
+								{
+									"activity": "Authenticate",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "vAccessToken",
+								"value": {
+									"value": "Bearer @{activity('Authenticate').output.access_token}",
+									"type": "Expression"
+								}
+							}
+						},
+						{
+							"name": "SetBaseUrl",
+							"type": "SetVariable",
+							"dependsOn": [
+								{
+									"activity": "GenerateAuthBody",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "vApiUrl",
+								"value": {
+									"value": "@pipeline().parameters.pApiUrl",
+									"type": "Expression"
+								}
+							}
+						},
+						{
+							"name": "SetApiUrlCurrentWithQueryParam1",
+							"type": "SetVariable",
+							"dependsOn": [
+								{
+									"activity": "SetBaseUrl",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "vApiUrlCurrent",
+								"value": {
+									"value": "@concat(variables('vApiUrl'), if(contains(item(), 'paramName1'), concat('?', item().paramName1, '=', replace(item().paramValue1,'Z','' )), ''))",
+									"type": "Expression"
+								}
+							}
+						},
+						{
+							"name": "TransferApiUrlCurrentToApiUrl",
+							"type": "SetVariable",
+							"dependsOn": [
+								{
+									"activity": "SetApiUrlCurrentWithQueryParam1",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "vApiUrl",
+								"value": {
+									"value": "@variables('vApiUrlCurrent')",
+									"type": "Expression"
+								}
+							}
+						},
+						{
+							"name": "SetApiUrlWithQueryParam2",
+							"type": "SetVariable",
+							"dependsOn": [
+								{
+									"activity": "TransferApiUrlCurrentToApiUrl",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "vApiUrl",
+								"value": {
+									"value": "@concat(variables('vApiUrlCurrent'), if(contains(item(), 'paramName2'), concat('&', item().paramName2, '=', replace(item().paramValue2,'Z','')), ''))",
+									"type": "Expression"
+								}
+							}
+						},
+						{
+							"name": "SetApiUrlCurrentWithQueryParam3",
+							"type": "SetVariable",
+							"dependsOn": [
+								{
+									"activity": "SetApiUrlWithQueryParam2",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "vApiUrlCurrent",
+								"value": {
+									"value": "@concat(variables('vApiUrl'), if(contains(item(), 'paramName3'), concat('&', item().paramName3, '=', item().paramValue3), ''))",
+									"type": "Expression"
+								}
+							}
+						},
+						{
+							"name": "TransferApiUrlCurrentToApiUrl2",
+							"type": "SetVariable",
+							"dependsOn": [
+								{
+									"activity": "SetApiUrlCurrentWithQueryParam3",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "vApiUrl",
+								"value": {
+									"value": "@variables('vApiUrlCurrent')",
+									"type": "Expression"
+								}
+							}
+						},
+						{
+							"name": "SetApiUrlWithQueryParam4",
+							"type": "SetVariable",
+							"dependsOn": [
+								{
+									"activity": "TransferApiUrlCurrentToApiUrl2",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "vApiUrl",
+								"value": {
+									"value": "@concat(variables('vApiUrlCurrent'), if(contains(item(), 'paramName4'), concat('&', item().paramName4, '=', item().paramValue4), ''))",
+									"type": "Expression"
+								}
+							}
+						},
+						{
+							"name": "GenerateAuthBody",
+							"type": "Switch",
+							"dependsOn": [
+								{
+									"activity": "GetAuthSecret",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								},
+								{
+									"activity": "GetAuthIdSecret",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								},
+								{
+									"activity": "SetCurrentCSTDateTimeForFileName",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								},
+								{
+									"activity": "Set_YYYYMMDD_Path",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								},
+								{
+									"activity": "SetCurrentCSTDateTime",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								},
+								{
+									"activity": "GetAuthIdUser",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"userProperties": [],
+							"typeProperties": {
+								"on": {
+									"value": "@pipeline().parameters.pApiAuthUrl",
+									"type": "Expression"
+								},
+								"cases": [
+									{
+										"value": "https://na1.nice-incontact.com/authentication/v1/token/access-key",
+										"activities": [
+											{
+												"name": "SetAuthRequestBody_copy1",
+												"type": "SetVariable",
+												"dependsOn": [],
+												"policy": {
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"variableName": "vAuthRequestBody",
+													"value": {
+														"value": "{\"accessKeyId\":\"@{activity('GetAuthIdSecret').output.value}\",\"accessKeySecret\":\"@{activity('GetAuthSecret').output.value}\"}",
+														"type": "Expression"
+													}
+												}
+											}
+										]
+									}
+								]
+							}
+						},
+						{
+							"name": "SetCurrentCSTDateTimeForFileName",
+							"description": "Setting up the current datetime that will be used for filename in data lake\n",
+							"type": "SetVariable",
+							"dependsOn": [],
+							"policy": {
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "vCurrentDateTimeCSTFilename",
+								"value": {
+									"value": "@concat(formatDateTime(convertTimeZone(utcnow(),'UTC','Central Standard Time'),'yyyy_MM_dd_HH_mm_ss'),'_cst')",
+									"type": "Expression"
+								}
+							}
+						},
+						{
+							"name": "Set_YYYYMMDD_Path",
+							"description": "Setting Date path for ADLS folders",
+							"type": "SetVariable",
+							"dependsOn": [],
+							"policy": {
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "vYYYYMMDD",
+								"value": {
+									"value": "@formatDateTime(convertTimeZone(utcnow(),'UTC','Central Standard Time'),'yyyy/MM/dd')",
+									"type": "Expression"
+								}
+							}
+						},
+						{
+							"name": "SetCurrentCSTDateTime",
+							"description": "Setting current date time in CST format for setting up watermark for next load",
+							"type": "SetVariable",
+							"dependsOn": [],
+							"policy": {
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "vNextWatermarkDateTimeCST",
+								"value": {
+									"value": "@formatDateTime(convertTimeZone(utcnow(),'UTC','Central Standard Time'),'yyyy-MM-dd HH:mm:ss')\n",
+									"type": "Expression"
+								}
+							}
+						},
+						{
+							"name": "SetBronzePath",
+							"type": "SetVariable",
+							"dependsOn": [
+								{
+									"activity": "SetAccessToken",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "vBronzePath",
+								"value": {
+									"value": "@{concat(substring(variables('vApiUrl'), 0, indexOf(variables('vApiUrl'), '?')),concat('/', formatDateTime(variables('vCurrentTime'), 'yyyy/MM/dd_HH_mm')),'/',replace(item().paramValue1,'Z',''),'/data_',formatDateTime(variables('vCurrentTime'), 'yyyy_MM_dd_HH_mm_ss'))}",
+									"type": "Expression"
+								}
+							}
+						},
+						{
+							"name": "UpdateCtrlTable",
+							"type": "Script",
+							"dependsOn": [
+								{
+									"activity": "AgentStateSwitch",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"linkedServiceName": {
+								"referenceName": "lnkAzureSqlParameterized",
+								"type": "LinkedServiceReference",
+								"parameters": {
+									"SecretName": "DLSqlCntrlConn"
+								}
+							},
+							"typeProperties": {
+								"scripts": [
+									{
+										"type": "NonQuery",
+										"text": {
+											"value": "UPDATE etl.ControlTableRestAPIToAdls\nSET ParamValue1 = '@{item().ParamValue1}',\nParamValue2 = '@{item().ParamValue2}'\nWHERE TriggerName = '@{pipeline().parameters.pTriggerName}'\nAND IsActiveFlag = 'Y'\nAND SourceEntityName = '@{pipeline().parameters.pSourceEntityName}';",
+											"type": "Expression"
+										}
+									}
+								],
+								"scriptBlockExecutionTimeout": "00:02:00"
+							}
+						},
+						{
+							"name": "AgentStateSwitch",
+							"type": "Switch",
+							"dependsOn": [
+								{
+									"activity": "SetBronzePath",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"userProperties": [],
+							"typeProperties": {
+								"on": {
+									"value": "@pipeline().parameters.pSourceEntityName",
+									"type": "Expression"
+								},
+								"cases": [
+									{
+										"value": "agent_state_history",
+										"activities": [
+											{
+												"name": "CopyNiceDataAgentState",
+												"type": "Copy",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "0.12:00:00",
+													"retry": 0,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"source": {
+														"type": "RestSource",
+														"httpRequestTimeout": "00:01:40",
+														"requestInterval": "00.00:00:00.010",
+														"requestMethod": "GET",
+														"additionalHeaders": {
+															"Authorization": {
+																"value": "@variables('vAccessToken')",
+																"type": "Expression"
+															}
+														},
+														"paginationRules": {
+															"QueryParameters.{skip}": "RANGE:0::10000",
+															"EndCondition:$['agentStateHistory']": "Empty"
+														}
+													},
+													"sink": {
+														"type": "ParquetSink",
+														"storeSettings": {
+															"type": "AzureBlobFSWriteSettings"
+														},
+														"formatSettings": {
+															"type": "ParquetWriteSettings"
+														}
+													},
+													"enableStaging": false,
+													"translator": {
+														"value": "@pipeline().parameters.pMapping",
+														"type": "Expression"
+													}
+												},
+												"inputs": [
+													{
+														"referenceName": "dsRestAnonymousParam",
+														"type": "DatasetReference",
+														"parameters": {
+															"pPath": {
+																"value": "@{variables('vApiUrl')}&skip={skip}",
+																"type": "Expression"
+															},
+															"pBaseUrl": "https://api-c48.nice-incontact.com"
+														}
+													}
+												],
+												"outputs": [
+													{
+														"referenceName": "dsADLSParquetParam",
+														"type": "DatasetReference",
+														"parameters": {
+															"pDataLakeContainer": "master",
+															"pDataLakeDirectory": {
+																"value": "@pipeline().parameters.pDataLakeDirectory",
+																"type": "Expression"
+															},
+															"pDataLakeFile": {
+																"value": "@variables('vBronzePath')",
+																"type": "Expression"
+															}
+														}
+													}
+												]
+											},
+											{
+												"name": "LogCopySuccessAgentState",
+												"type": "Copy",
+												"dependsOn": [
+													{
+														"activity": "CopyNiceDataAgentState",
+														"dependencyConditions": [
+															"Succeeded"
+														]
+													},
+													{
+														"activity": "CopyNiceDataAgentStateRetry1",
+														"dependencyConditions": [
+															"Succeeded"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "0.12:00:00",
+													"retry": 0,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"source": {
+														"type": "AzureSqlSource",
+														"sqlReaderQuery": {
+															"value": "SELECT '@{pipeline().DataFactory}' as DataFactoryName,\n'@{pipeline().Pipeline}' as PipelineName,\n'@{pipeline().RunId}' as RunId,\n\n\n'master' as TargetDataLakeContainerName,\n'@{concat('data_', formatDateTime(utcNow(), 'yyyy_MM_dd_HH_mm_ss'))}' as TargetFileName,\n'@{pipeline().TriggerType}' as TriggerType,\n'@{pipeline().TriggerId}' as TriggerId,\n'@{pipeline().TriggerTime}' as TriggerTime,\n'@{activity('CopyNiceDataAgentState').output.rowsCopied}' as RowsCopied,\n'@{activity('CopyNiceDataAgentState').output.rowsRead}' as RowsRead,\n'@{activity('CopyNiceDataAgentState').output.usedParallelCopies}' as NoParallelCopies,\n'@{activity('CopyNiceDataAgentState').output.copyDuration}' as CopyDurationInSecs,\n'@{activity('CopyNiceDataAgentState').output.effectiveIntegrationRuntime}' as effectiveIntegrationRuntime,\n'@{activity('CopyNiceDataAgentState').output.executionDetails[0].source}' as SourceType,\n'@{activity('CopyNiceDataAgentState').output.executionDetails[0].sink}' as SinkType,\n'@{activity('CopyNiceDataAgentState').output.executionDetails[0].status}' as ExecutionStatus,\n'@{activity('CopyNiceDataAgentState').output.executionDetails[0].start}' as CopyActivityStartTime,\n'@{utcNow()}' as CopyActivityEndTime,\n'@{activity('CopyNiceDataAgentState').output.executionDetails[0].detailedDurations.queuingDuration}' as CopyActivityQueuingDurationInSecs,\n'@{activity('CopyNiceDataAgentState').output.executionDetails[0].detailedDurations.timeToFirstByte}' as CopyActivityPreCopyScriptDurationInSecs,\n'@{activity('CopyNiceDataAgentState').output.executionDetails[0].detailedDurations.transferDuration}' as CopyActivityTransferDurationInSecs,\n'@{pipeline().parameters.pApiUrl}' as ApiUrl,\n'@{pipeline().parameters.pKeyVaultIdPath}' as KeyVaultIdPath,\n'@{pipeline().parameters.pKeyVaultSecretPath}' as KeyVaultSecretPath,\n'@{pipeline().parameters.pApiAuthUrl}' as ApiAuthUrl,\n'@{pipeline().parameters.pTriggerName}' as TriggerName,\n'@{replace(string(pipeline().parameters.pMapping), '''', '''''')}' as Mapping,\n'@{pipeline().parameters.pZOrderColumnList}' as ZOrderColumnList,\n'@{pipeline().parameters.pServiceName}' as ServiceName,\n'@{pipeline().parameters.pSourceEntityName}' as SourceEntityName,\n'@{variables('vBronzePath')}' as BronzePath,\n'@{variables('vApiUrl')}' as ConcatApiUrl,\n'@{item().paramName1}' as QueryParamName1,\n'@{item().paramValue1}' as QueryParamValue1,\n'@{item().paramName2}' as QueryParamName2,\n'@{item().paramValue2}' as QueryParamValue2,\nnull as ErrorMessage",
+															"type": "Expression"
+														},
+														"queryTimeout": "02:00:00",
+														"partitionOption": "None"
+													},
+													"sink": {
+														"type": "AzureSqlSink",
+														"writeBehavior": "insert",
+														"sqlWriterUseTableLock": false
+													},
+													"enableStaging": false,
+													"translator": {
+														"type": "TabularTranslator",
+														"typeConversion": true,
+														"typeConversionSettings": {
+															"allowDataTruncation": true,
+															"treatBooleanAsNumber": false
+														}
+													}
+												},
+												"inputs": [
+													{
+														"referenceName": "dsAzureSQLParam",
+														"type": "DatasetReference",
+														"parameters": {
+															"pSecretName": {
+																"value": "@pipeline().parameters.pAzureSQLSecretName",
+																"type": "Expression"
+															},
+															"pSchemaName": "log",
+															"pTableName": "NiceToAdlsPipelineRunLogs"
+														}
+													}
+												],
+												"outputs": [
+													{
+														"referenceName": "dsAzureSQLParam",
+														"type": "DatasetReference",
+														"parameters": {
+															"pSecretName": {
+																"value": "@pipeline().parameters.pAzureSQLSecretName",
+																"type": "Expression"
+															},
+															"pSchemaName": "log",
+															"pTableName": "NiceToAdlsPipelineRunLogs"
+														}
+													}
+												]
+											},
+											{
+												"name": "LogCopyFailureAgentState",
+												"type": "Copy",
+												"dependsOn": [
+													{
+														"activity": "CopyNiceDataAgentStateRetry1",
+														"dependencyConditions": [
+															"Failed"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "0.12:00:00",
+													"retry": 0,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"source": {
+														"type": "AzureSqlSource",
+														"sqlReaderQuery": {
+															"value": "SELECT '@{pipeline().DataFactory}' as DataFactoryName,\n'@{pipeline().Pipeline}' as PipelineName,\n'@{pipeline().RunId}' as RunId,\n'master' as TargetDataLakeContainerName,\n'@{concat('data_', formatDateTime(utcNow(), 'yyyy_MM_dd_HH_mm_ss'))}' as TargetFileName,\n'@{pipeline().TriggerType}' as TriggerType,\n'@{pipeline().TriggerId}' as TriggerId,\n'@{pipeline().TriggerTime}' as TriggerTime,\nnull as RowsCopied,\nnull as RowsRead,\n'@{activity('CopyNiceDataAgentState').output.usedParallelCopies}' as NoParallelCopies,\nnull as CopyDurationInSecs,\n'@{activity('CopyNiceDataAgentState').output.effectiveIntegrationRuntime}' as effectiveIntegrationRuntime,\n'@{activity('CopyNiceDataAgentState').output.executionDetails[0].source}' as SourceType,\n'@{activity('CopyNiceDataAgentState').output.executionDetails[0].sink}' as SinkType,\n'@{activity('CopyNiceDataAgentState').output.executionDetails[0].status}' as ExecutionStatus,\n'@{activity('CopyNiceDataAgentState').output.executionDetails[0].start}' as CopyActivityStartTime,\n'@{utcNow()}' as CopyActivityEndTime,\n'' as CopyActivityQueuingDurationInSecs,\n'' as CopyActivityPreCopyScriptDurationInSecs,\n'' as CopyActivityTransferDurationInSecs,\n'@{pipeline().parameters.pApiUrl}' as ApiUrl,\n'@{pipeline().parameters.pKeyVaultIdPath}' as KeyVaultIdPath,\n'@{pipeline().parameters.pKeyVaultSecretPath}' as KeyVaultSecretPath,\n'@{pipeline().parameters.pApiAuthUrl}' as ApiAuthUrl,\n'@{pipeline().parameters.pTriggerName}' as TriggerName,\n'@{replace(string(pipeline().parameters.pMapping), '''', '''''')}' as Mapping,\n'@{pipeline().parameters.pZOrderColumnList}' as ZOrderColumnList,\n'@{pipeline().parameters.pServiceName}' as ServiceName,\n'@{pipeline().parameters.pSourceEntityName}' as SourceEntityName,\n'@{variables('vBronzePath')}' as BronzePath,\n'@{variables('vApiUrl')}' as ConcatApiUrl,\n'@{item().paramName1}' as QueryParamName1,\n'@{item().paramValue1}' as QueryParamValue1,\n'@{item().paramName2}' as QueryParamName2,\n'@{item().paramValue2}' as QueryParamValue2,\n'@{replace(activity('CopyNiceDataAgentState').output.errors[0].Message,'''','')}' as ErrorMessage",
+															"type": "Expression"
+														},
+														"queryTimeout": "02:00:00",
+														"partitionOption": "None"
+													},
+													"sink": {
+														"type": "AzureSqlSink",
+														"writeBehavior": "insert",
+														"sqlWriterUseTableLock": false
+													},
+													"enableStaging": false,
+													"translator": {
+														"type": "TabularTranslator",
+														"typeConversion": true,
+														"typeConversionSettings": {
+															"allowDataTruncation": true,
+															"treatBooleanAsNumber": false
+														}
+													}
+												},
+												"inputs": [
+													{
+														"referenceName": "dsAzureSQLParam",
+														"type": "DatasetReference",
+														"parameters": {
+															"pSecretName": {
+																"value": "@pipeline().parameters.pAzureSQLSecretName",
+																"type": "Expression"
+															},
+															"pSchemaName": "log",
+															"pTableName": "NiceToAdlsPipelineRunLogs"
+														}
+													}
+												],
+												"outputs": [
+													{
+														"referenceName": "dsAzureSQLParam",
+														"type": "DatasetReference",
+														"parameters": {
+															"pSecretName": {
+																"value": "@pipeline().parameters.pAzureSQLSecretName",
+																"type": "Expression"
+															},
+															"pSchemaName": "log",
+															"pTableName": "NiceToAdlsPipelineRunLogs"
+														}
+													}
+												]
+											},
+											{
+												"name": "CopyNiceDataAgentStateRetry1",
+												"type": "Copy",
+												"dependsOn": [
+													{
+														"activity": "Wait",
+														"dependencyConditions": [
+															"Succeeded"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "0.12:00:00",
+													"retry": 0,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"source": {
+														"type": "RestSource",
+														"httpRequestTimeout": "00:01:40",
+														"requestInterval": "00.00:00:00.010",
+														"requestMethod": "GET",
+														"additionalHeaders": {
+															"Authorization": {
+																"value": "@variables('vAccessToken')",
+																"type": "Expression"
+															}
+														},
+														"paginationRules": {
+															"QueryParameters.{skip}": "RANGE:0::10000",
+															"EndCondition:$['agentStateHistory']": "Empty"
+														}
+													},
+													"sink": {
+														"type": "ParquetSink",
+														"storeSettings": {
+															"type": "AzureBlobFSWriteSettings"
+														},
+														"formatSettings": {
+															"type": "ParquetWriteSettings"
+														}
+													},
+													"enableStaging": false,
+													"translator": {
+														"value": "@pipeline().parameters.pMapping",
+														"type": "Expression"
+													}
+												},
+												"inputs": [
+													{
+														"referenceName": "dsRestAnonymousParam",
+														"type": "DatasetReference",
+														"parameters": {
+															"pPath": {
+																"value": "@{variables('vApiUrl')}&skip={skip}",
+																"type": "Expression"
+															},
+															"pBaseUrl": "https://api-c48.nice-incontact.com"
+														}
+													}
+												],
+												"outputs": [
+													{
+														"referenceName": "dsADLSParquetParam",
+														"type": "DatasetReference",
+														"parameters": {
+															"pDataLakeContainer": "master",
+															"pDataLakeDirectory": {
+																"value": "@pipeline().parameters.pDataLakeDirectory",
+																"type": "Expression"
+															},
+															"pDataLakeFile": {
+																"value": "@variables('vBronzePath')",
+																"type": "Expression"
+															}
+														}
+													}
+												]
+											},
+											{
+												"name": "Wait",
+												"type": "Wait",
+												"dependsOn": [
+													{
+														"activity": "CopyNiceDataAgentState",
+														"dependencyConditions": [
+															"Failed"
+														]
+													}
+												],
+												"userProperties": [],
+												"typeProperties": {
+													"waitTimeInSeconds": 30
+												}
+											}
+										]
+									}
+								],
+								"defaultActivities": [
+									{
+										"name": "CopyNiceDataDefault",
+										"type": "Copy",
+										"dependsOn": [],
+										"policy": {
+											"timeout": "0.12:00:00",
+											"retry": 0,
+											"retryIntervalInSeconds": 30,
+											"secureOutput": false,
+											"secureInput": false
+										},
+										"userProperties": [],
+										"typeProperties": {
+											"source": {
+												"type": "RestSource",
+												"httpRequestTimeout": "00:01:40",
+												"requestInterval": "00.00:00:00.010",
+												"requestMethod": "GET",
+												"additionalHeaders": {
+													"Authorization": {
+														"value": "@variables('vAccessToken')",
+														"type": "Expression"
+													}
+												},
+												"paginationRules": {
+													"AbsoluteUrl": "$._links.next"
+												}
+											},
+											"sink": {
+												"type": "ParquetSink",
+												"storeSettings": {
+													"type": "AzureBlobFSWriteSettings"
+												},
+												"formatSettings": {
+													"type": "ParquetWriteSettings"
+												}
+											},
+											"enableStaging": false,
+											"translator": {
+												"value": "@pipeline().parameters.pMapping",
+												"type": "Expression"
+											}
+										},
+										"inputs": [
+											{
+												"referenceName": "dsRestAnonymousParam",
+												"type": "DatasetReference",
+												"parameters": {
+													"pPath": {
+														"value": "@variables('vApiUrl')",
+														"type": "Expression"
+													},
+													"pBaseUrl": "https://api-na1.niceincontact.com"
+												}
+											}
+										],
+										"outputs": [
+											{
+												"referenceName": "dsADLSParquetParam",
+												"type": "DatasetReference",
+												"parameters": {
+													"pDataLakeContainer": "master",
+													"pDataLakeDirectory": {
+														"value": "@pipeline().parameters.pDataLakeDirectory",
+														"type": "Expression"
+													},
+													"pDataLakeFile": {
+														"value": "@variables('vBronzePath')",
+														"type": "Expression"
+													}
+												}
+											}
+										]
+									},
+									{
+										"name": "LogCopySuccess",
+										"type": "Copy",
+										"dependsOn": [
+											{
+												"activity": "CopyNiceDataDefault",
+												"dependencyConditions": [
+													"Succeeded"
+												]
+											},
+											{
+												"activity": "CopyNiceDataDefaultRetry",
+												"dependencyConditions": [
+													"Succeeded"
+												]
+											}
+										],
+										"policy": {
+											"timeout": "0.12:00:00",
+											"retry": 0,
+											"retryIntervalInSeconds": 30,
+											"secureOutput": false,
+											"secureInput": false
+										},
+										"userProperties": [],
+										"typeProperties": {
+											"source": {
+												"type": "AzureSqlSource",
+												"sqlReaderQuery": {
+													"value": "SELECT '@{pipeline().DataFactory}' as DataFactoryName,\n'@{pipeline().Pipeline}' as PipelineName,\n'@{pipeline().RunId}' as RunId,\n\n\n'master' as TargetDataLakeContainerName,\n'@{concat('data_', formatDateTime(utcNow(), 'yyyy_MM_dd_HH_mm_ss'))}' as TargetFileName,\n'@{pipeline().TriggerType}' as TriggerType,\n'@{pipeline().TriggerId}' as TriggerId,\n'@{pipeline().TriggerTime}' as TriggerTime,\n'@{activity('CopyNiceDataDefault').output.rowsCopied}' as RowsCopied,\n'@{activity('CopyNiceDataDefault').output.rowsRead}' as RowsRead,\n'@{activity('CopyNiceDataDefault').output.usedParallelCopies}' as NoParallelCopies,\n'@{activity('CopyNiceDataDefault').output.copyDuration}' as CopyDurationInSecs,\n'@{activity('CopyNiceDataDefault').output.effectiveIntegrationRuntime}' as effectiveIntegrationRuntime,\n'@{activity('CopyNiceDataDefault').output.executionDetails[0].source}' as SourceType,\n'@{activity('CopyNiceDataDefault').output.executionDetails[0].sink}' as SinkType,\n'@{activity('CopyNiceDataDefault').output.executionDetails[0].status}' as ExecutionStatus,\n'@{activity('CopyNiceDataDefault').output.executionDetails[0].start}' as CopyActivityStartTime,\n'@{utcNow()}' as CopyActivityEndTime,\n'@{activity('CopyNiceDataDefault').output.executionDetails[0].detailedDurations.queuingDuration}' as CopyActivityQueuingDurationInSecs,\n'@{activity('CopyNiceDataDefault').output.executionDetails[0].detailedDurations.timeToFirstByte}' as CopyActivityPreCopyScriptDurationInSecs,\n'@{activity('CopyNiceDataDefault').output.executionDetails[0].detailedDurations.transferDuration}' as CopyActivityTransferDurationInSecs,\n\n'@{pipeline().parameters.pApiUrl}' as ApiUrl,\n'@{pipeline().parameters.pKeyVaultIdPath}' as KeyVaultIdPath,\n'@{pipeline().parameters.pKeyVaultSecretPath}' as KeyVaultSecretPath,\n'@{pipeline().parameters.pApiAuthUrl}' as ApiAuthUrl,\n'@{pipeline().parameters.pTriggerName}' as TriggerName,\n'@{replace(string(pipeline().parameters.pMapping), '''', '''''')}' as Mapping,\n'@{pipeline().parameters.pZOrderColumnList}' as ZOrderColumnList,\n'@{pipeline().parameters.pServiceName}' as ServiceName,\n'@{pipeline().parameters.pSourceEntityName}' as SourceEntityName,\n'@{variables('vBronzePath')}' as BronzePath,\n'@{variables('vApiUrl')}' as ConcatApiUrl,\n'@{item().paramName1}' as QueryParamName1,\n'@{item().paramValue1}' as QueryParamValue1,\n'@{item().paramName2}' as QueryParamName2,\n'@{item().paramValue2}' as QueryParamValue2,\nnull as ErrorMessage",
+													"type": "Expression"
+												},
+												"queryTimeout": "02:00:00",
+												"partitionOption": "None"
+											},
+											"sink": {
+												"type": "AzureSqlSink",
+												"writeBehavior": "insert",
+												"sqlWriterUseTableLock": false
+											},
+											"enableStaging": false,
+											"translator": {
+												"type": "TabularTranslator",
+												"typeConversion": true,
+												"typeConversionSettings": {
+													"allowDataTruncation": true,
+													"treatBooleanAsNumber": false
+												}
+											}
+										},
+										"inputs": [
+											{
+												"referenceName": "dsAzureSQLParam",
+												"type": "DatasetReference",
+												"parameters": {
+													"pSecretName": {
+														"value": "@pipeline().parameters.pAzureSQLSecretName",
+														"type": "Expression"
+													},
+													"pSchemaName": "log",
+													"pTableName": "NiceToAdlsPipelineRunLogs"
+												}
+											}
+										],
+										"outputs": [
+											{
+												"referenceName": "dsAzureSQLParam",
+												"type": "DatasetReference",
+												"parameters": {
+													"pSecretName": {
+														"value": "@pipeline().parameters.pAzureSQLSecretName",
+														"type": "Expression"
+													},
+													"pSchemaName": "log",
+													"pTableName": "NiceToAdlsPipelineRunLogs"
+												}
+											}
+										]
+									},
+									{
+										"name": "LogCopyFailure",
+										"type": "Copy",
+										"dependsOn": [
+											{
+												"activity": "CopyNiceDataDefaultRetry",
+												"dependencyConditions": [
+													"Failed"
+												]
+											}
+										],
+										"policy": {
+											"timeout": "0.12:00:00",
+											"retry": 0,
+											"retryIntervalInSeconds": 30,
+											"secureOutput": false,
+											"secureInput": false
+										},
+										"userProperties": [],
+										"typeProperties": {
+											"source": {
+												"type": "AzureSqlSource",
+												"sqlReaderQuery": {
+													"value": "SELECT '@{pipeline().DataFactory}' as DataFactoryName,\n'@{pipeline().Pipeline}' as PipelineName,\n'@{pipeline().RunId}' as RunId,\n'master' as TargetDataLakeContainerName,\n'@{concat('data_', formatDateTime(utcNow(), 'yyyy_MM_dd_HH_mm_ss'))}' as TargetFileName,\n'@{pipeline().TriggerType}' as TriggerType,\n'@{pipeline().TriggerId}' as TriggerId,\n'@{pipeline().TriggerTime}' as TriggerTime,\nnull as RowsCopied,\nnull as RowsRead,\n'@{activity('CopyNiceDataDefault').output.usedParallelCopies}' as NoParallelCopies,\nnull as CopyDurationInSecs,\n'@{activity('CopyNiceDataDefault').output.effectiveIntegrationRuntime}' as effectiveIntegrationRuntime,\n'@{activity('CopyNiceDataDefault').output.executionDetails[0].source}' as SourceType,\n'@{activity('CopyNiceDataDefault').output.executionDetails[0].sink}' as SinkType,\n'@{activity('CopyNiceDataDefault').output.executionDetails[0].status}' as ExecutionStatus,\n'@{activity('CopyNiceDataDefault').output.executionDetails[0].start}' as CopyActivityStartTime,\n'@{utcNow()}' as CopyActivityEndTime,\n'' as CopyActivityQueuingDurationInSecs,\n'' as CopyActivityPreCopyScriptDurationInSecs,\n'' as CopyActivityTransferDurationInSecs,\n'@{pipeline().parameters.pApiUrl}' as ApiUrl,\n'@{pipeline().parameters.pKeyVaultIdPath}' as KeyVaultIdPath,\n'@{pipeline().parameters.pKeyVaultSecretPath}' as KeyVaultSecretPath,\n'@{pipeline().parameters.pApiAuthUrl}' as ApiAuthUrl,\n'@{pipeline().parameters.pTriggerName}' as TriggerName,\n'@{replace(string(pipeline().parameters.pMapping), '''', '''''')}' as Mapping,\n'@{pipeline().parameters.pZOrderColumnList}' as ZOrderColumnList,\n'@{pipeline().parameters.pServiceName}' as ServiceName,\n'@{pipeline().parameters.pSourceEntityName}' as SourceEntityName,\n'@{variables('vBronzePath')}' as BronzePath,\n'@{variables('vApiUrl')}' as ConcatApiUrl,\n'@{item().paramName1}' as QueryParamName1,\n'@{item().paramValue1}' as QueryParamValue1,\n'@{item().paramName2}' as QueryParamName2,\n'@{item().paramValue2}' as QueryParamValue2,\n'@{replace(activity('CopyNiceDataDefault').output.errors[0].Message,'''','')}' as ErrorMessage",
+													"type": "Expression"
+												},
+												"queryTimeout": "02:00:00",
+												"partitionOption": "None"
+											},
+											"sink": {
+												"type": "AzureSqlSink",
+												"writeBehavior": "insert",
+												"sqlWriterUseTableLock": false
+											},
+											"enableStaging": false,
+											"translator": {
+												"type": "TabularTranslator",
+												"typeConversion": true,
+												"typeConversionSettings": {
+													"allowDataTruncation": true,
+													"treatBooleanAsNumber": false
+												}
+											}
+										},
+										"inputs": [
+											{
+												"referenceName": "dsAzureSQLParam",
+												"type": "DatasetReference",
+												"parameters": {
+													"pSecretName": {
+														"value": "@pipeline().parameters.pAzureSQLSecretName",
+														"type": "Expression"
+													},
+													"pSchemaName": "log",
+													"pTableName": "NiceToAdlsPipelineRunLogs"
+												}
+											}
+										],
+										"outputs": [
+											{
+												"referenceName": "dsAzureSQLParam",
+												"type": "DatasetReference",
+												"parameters": {
+													"pSecretName": {
+														"value": "@pipeline().parameters.pAzureSQLSecretName",
+														"type": "Expression"
+													},
+													"pSchemaName": "log",
+													"pTableName": "NiceToAdlsPipelineRunLogs"
+												}
+											}
+										]
+									},
+									{
+										"name": "CopyNiceDataDefaultRetry",
+										"type": "Copy",
+										"dependsOn": [
+											{
+												"activity": "Wait30Sec",
+												"dependencyConditions": [
+													"Succeeded"
+												]
+											}
+										],
+										"policy": {
+											"timeout": "0.12:00:00",
+											"retry": 0,
+											"retryIntervalInSeconds": 30,
+											"secureOutput": false,
+											"secureInput": false
+										},
+										"userProperties": [],
+										"typeProperties": {
+											"source": {
+												"type": "RestSource",
+												"httpRequestTimeout": "00:01:40",
+												"requestInterval": "00.00:00:00.010",
+												"requestMethod": "GET",
+												"additionalHeaders": {
+													"Authorization": {
+														"value": "@variables('vAccessToken')",
+														"type": "Expression"
+													}
+												},
+												"paginationRules": {
+													"AbsoluteUrl": "$._links.next"
+												}
+											},
+											"sink": {
+												"type": "ParquetSink",
+												"storeSettings": {
+													"type": "AzureBlobFSWriteSettings"
+												},
+												"formatSettings": {
+													"type": "ParquetWriteSettings"
+												}
+											},
+											"enableStaging": false,
+											"translator": {
+												"value": "@pipeline().parameters.pMapping",
+												"type": "Expression"
+											}
+										},
+										"inputs": [
+											{
+												"referenceName": "dsRestAnonymousParam",
+												"type": "DatasetReference",
+												"parameters": {
+													"pPath": {
+														"value": "@variables('vApiUrl')",
+														"type": "Expression"
+													},
+													"pBaseUrl": "https://api-c48.nice-incontact.com"
+												}
+											}
+										],
+										"outputs": [
+											{
+												"referenceName": "dsADLSParquetParam",
+												"type": "DatasetReference",
+												"parameters": {
+													"pDataLakeContainer": "master",
+													"pDataLakeDirectory": {
+														"value": "@pipeline().parameters.pDataLakeDirectory",
+														"type": "Expression"
+													},
+													"pDataLakeFile": {
+														"value": "@variables('vBronzePath')",
+														"type": "Expression"
+													}
+												}
+											}
+										]
+									},
+									{
+										"name": "Wait30Sec",
+										"type": "Wait",
+										"dependsOn": [
+											{
+												"activity": "CopyNiceDataDefault",
+												"dependencyConditions": [
+													"Failed"
+												]
+											}
+										],
+										"userProperties": [],
+										"typeProperties": {
+											"waitTimeInSeconds": 30
+										}
+									}
+								]
+							}
+						},
+						{
+							"name": "GetAuthIdUser",
+							"type": "WebActivity",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"method": "GET",
+								"url": {
+									"value": "@pipeline().parameters.pApiAuthUser",
+									"type": "Expression"
+								},
+								"connectVia": {
+									"referenceName": "AutoResolveIntegrationRuntime",
+									"type": "IntegrationRuntimeReference"
+								},
+								"authentication": {
+									"type": "MSI",
+									"resource": "https://vault.azure.net"
+								}
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "LoadDeltaLakeSilverOnFailure",
+				"type": "DatabricksNotebook",
+				"dependsOn": [
+					{
+						"activity": "ForEachParam",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"notebookPath": {
+						"value": "@variables('vNotebookPath')",
+						"type": "Expression"
+					},
+					"baseParameters": {
+						"ZOrderColumnList": {
+							"value": "@pipeline().parameters.pZOrderColumnList",
+							"type": "Expression"
+						},
+						"SourceServiceName": {
+							"value": "@pipeline().parameters.pServiceName",
+							"type": "Expression"
+						},
+						"SourceEntityName": {
+							"value": "@pipeline().parameters.pSourceEntityName",
+							"type": "Expression"
+						},
+						"SourceBronzePath": {
+							"value": "@{\nconcat(\npipeline().parameters.pApiUrl,\nconcat('/', formatDateTime(variables('vCurrentTime'), 'yyyy/MM/dd_HH_mm')),\n'/'\n)}",
+							"type": "Expression"
+						},
+						"CurrentDate": {
+							"value": "@variables('vCurrentTime')",
+							"type": "Expression"
+						},
+						"DateSet": {
+							"value": "@string(pipeline().parameters.pParams)",
+							"type": "Expression"
+						},
+						"StartDate": {
+							"value": "@variables('vInitalStartDate')",
+							"type": "Expression"
+						},
+						"StorageAccountName": {
+							"value": "@pipeline().parameters.pStorageAccountName",
+							"type": "Expression"
+						},
+						"UnityCatalogName": {
+							"value": "@pipeline().parameters.pUnityCatalogName",
+							"type": "Expression"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "lnkAzureDatabricks",
+					"type": "LinkedServiceReference"
+				}
+			}
+		],
+		"parameters": {
+			"pApiUrl": {
+				"type": "string",
+				"defaultValue": "/incontactapi/services/v25.0/dispositions/skills"
+			},
+			"pKeyVaultIdPath": {
+				"type": "string",
+				"defaultValue": "https://kvl-keyvlt-usc-dev.vault.azure.net/secrets/NiceAccessID/0cf22c549f354dc19596df57cf0998ce?api-version=7.0"
+			},
+			"pKeyVaultSecretPath": {
+				"type": "string",
+				"defaultValue": "https://kvl-keyvlt-usc-dev.vault.azure.net/secrets/NiceAccessSecret/ebf13263646142aa94fee4a7e8e43c8b?api-version=7.0"
+			},
+			"pApiAuthUrl": {
+				"type": "string",
+				"defaultValue": "https://na1.nice-incontact.com/authentication/v1/token/access-key"
+			},
+			"pParams": {
+				"type": "array",
+				"defaultValue": [
+					{
+						"paramName1": "startDate",
+						"paramValue1": "2023-02-03T00:00:00",
+						"paramName2": "endDate",
+						"paramValue2": "2023-02-04T00:00:00"
+					}
+				]
+			},
+			"pTriggerName": {
+				"type": "string",
+				"defaultValue": "trgNiceApi"
+			},
+			"pMapping": {
+				"type": "object",
+				"defaultValue": {
+					"type": "TabularTranslator",
+					"mappings": [
+						{
+							"source": {
+								"path": "['dispositionId']"
+							},
+							"sink": {
+								"name": "dispositionId",
+								"type": "Int64"
+							}
+						},
+						{
+							"source": {
+								"path": "['dispositionName']"
+							},
+							"sink": {
+								"name": "dispositionName",
+								"type": "String"
+							}
+						},
+						{
+							"source": {
+								"path": "['isActive']"
+							},
+							"sink": {
+								"name": "isActive",
+								"type": "Boolean"
+							}
+						},
+						{
+							"source": {
+								"path": "$['skills'][0]['skillId']"
+							},
+							"sink": {
+								"name": "skillId",
+								"type": "Int64"
+							}
+						},
+						{
+							"source": {
+								"path": "$['skills'][0]['mediaTypeId']"
+							},
+							"sink": {
+								"name": "mediaTypeId",
+								"type": "Int64"
+							}
+						},
+						{
+							"source": {
+								"path": "$['skills'][0]['mediaTypeName']"
+							},
+							"sink": {
+								"name": "mediaTypeName",
+								"type": "String"
+							}
+						}
+					],
+					"collectionReference": "$['dispositions']"
+				}
+			},
+			"pZOrderColumnList": {
+				"type": "string",
+				"defaultValue": "dispositionId"
+			},
+			"pServiceName": {
+				"type": "string",
+				"defaultValue": "NICE"
+			},
+			"pSourceEntityName": {
+				"type": "string",
+				"defaultValue": "disposition_skills"
+			},
+			"pAzureSQLSecretName": {
+				"type": "string",
+				"defaultValue": "DLSqlCntrlConn"
+			},
+			"pUnityCatalogName": {
+				"type": "string",
+				"defaultValue": "dev_silver"
+			},
+			"pStorageAccountName": {
+				"type": "string",
+				"defaultValue": "stdlalds2uscdev"
+			},
+			"pApiAuthUser": {
+				"type": "string",
+				"defaultValue": "https://kvl-keyvlt-usc-dev.vault.azure.net/secrets/NiceClientId/a8d7547830964a6abf48bb3d9975f905?api-version=7.0"
+			},
+			"pDataLakeDirectory": {
+				"type": "string",
+				"defaultValue": "/landing_zone/nice/"
+			}
+		},
+		"variables": {
+			"vAccessToken": {
+				"type": "String",
+				"defaultValue": "abc"
+			},
+			"vAuthRequestBody": {
+				"type": "String",
+				"defaultValue": "{}"
+			},
+			"vApiUrl": {
+				"type": "String",
+				"defaultValue": "/"
+			},
+			"vApiUrlCurrent": {
+				"type": "String",
+				"defaultValue": "/"
+			},
+			"vParams": {
+				"type": "Array"
+			},
+			"vCurrentDateTimeCSTFilename": {
+				"type": "String"
+			},
+			"vYYYYMMDD": {
+				"type": "String"
+			},
+			"vNextWatermarkDateTimeCST": {
+				"type": "String"
+			},
+			"vBronzePath": {
+				"type": "String"
+			},
+			"vAzureSQLSecretName": {
+				"type": "String",
+				"defaultValue": "DLSqlCntrlConn"
+			},
+			"vStartDate": {
+				"type": "String"
+			},
+			"vCurrentTime": {
+				"type": "String"
+			},
+			"vInitalStartDate": {
+				"type": "String"
+			},
+			"vNotebookPath": {
+				"type": "String",
+				"defaultValue": "/BronzeToSilverDataProcessing/Nice/Load Nice Silver Tables"
+			}
+		},
+		"folder": {
+			"name": "Nice"
+		},
+		"annotations": []
+	}
+}

@@ -1,0 +1,289 @@
+{
+	"name": "pLoadPrevedereData",
+	"properties": {
+		"activities": [
+			{
+				"name": "QueryControlTableForLoad",
+				"type": "Lookup",
+				"dependsOn": [
+					{
+						"activity": "SetApiKey",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "AzureSqlSource",
+						"sqlReaderQuery": {
+							"value": "select * from etl.ControlTablePrevedereAPIToAdls a\njoin etl.UnityCatalogConnectionStore b\non a.ActiveFlag = b.IsActiveFlag\nWHERE a.TriggerName = '@{pipeline().parameters.pTriggerName}';",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "dsAzureSQLParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pSecretName": {
+								"value": "@pipeline().parameters.pAzureSQLSecretName",
+								"type": "Expression"
+							},
+							"pSchemaName": {
+								"value": "@pipeline().parameters.pAzureSQLSchemaName",
+								"type": "Expression"
+							},
+							"pTableName": {
+								"value": "@pipeline().parameters.pAzureSQLTableName",
+								"type": "Expression"
+							}
+						}
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "ControlTableForEach",
+				"type": "ForEach",
+				"dependsOn": [
+					{
+						"activity": "QueryControlTableForLoad",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@activity('QueryControlTableForLoad').output.value",
+						"type": "Expression"
+					},
+					"isSequential": false,
+					"activities": [
+						{
+							"name": "Prevedere Indicator Load",
+							"type": "ExecutePipeline",
+							"dependsOn": [],
+							"policy": {
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"pipeline": {
+									"referenceName": "plPrevedereIndicatorLoad",
+									"type": "PipelineReference"
+								},
+								"waitOnCompletion": true,
+								"parameters": {
+									"pDataLakeDirectory": {
+										"value": "@item().DataLakeDirectory",
+										"type": "Expression"
+									},
+									"pSourceEntityName": {
+										"value": "@item().SourceEntityName",
+										"type": "Expression"
+									},
+									"pParamName1": {
+										"value": "@item().ParamName1",
+										"type": "Expression"
+									},
+									"pParamValue1": {
+										"value": "@item().ParamValue1",
+										"type": "Expression"
+									},
+									"pParamValue2": {
+										"value": "@item().ParamValue2",
+										"type": "Expression"
+									},
+									"pApiUrl": {
+										"value": "@item().ApiUrl",
+										"type": "Expression"
+									},
+									"pTriggerName": {
+										"value": "@item().TriggerName",
+										"type": "Expression"
+									},
+									"pAzureSQLSecretName": {
+										"value": "@pipeline().parameters.pAzureSQLSecretName",
+										"type": "Expression"
+									},
+									"pMapping": {
+										"value": "@json(item().Mapping)",
+										"type": "Expression"
+									},
+									"pZOrderColumnList": {
+										"value": "@item().ZOrderColumnList",
+										"type": "Expression"
+									},
+									"pServiceName": {
+										"value": "@item().ServiceName",
+										"type": "Expression"
+									},
+									"pParamName2": {
+										"value": "@item().paramName2",
+										"type": "Expression"
+									},
+									"pBronzeNotebookPath": {
+										"value": "@pipeline().parameters.pBronzeNotebookPath",
+										"type": "Expression"
+									},
+									"pDatabricksScope": {
+										"value": "@item().DatabricksScope",
+										"type": "Expression"
+									},
+									"pStorageAccountName": {
+										"value": "@item().StorageAccountName",
+										"type": "Expression"
+									},
+									"pUnityCatalogName": {
+										"value": "@item().UnityCatalogName",
+										"type": "Expression"
+									},
+									"pKey": {
+										"value": "@pipeline().parameters.pKey",
+										"type": "Expression"
+									},
+									"pBronzeFolderName": {
+										"value": "@pipeline().parameters.pBronzeFolderName",
+										"type": "Expression"
+									},
+									"pKeyVaultSecretPath": {
+										"value": "@pipeline().parameters.pKeyVaultSecretPath",
+										"type": "Expression"
+									},
+									"pApiKey": {
+										"value": "@variables('vApiKey')",
+										"type": "Expression"
+									}
+								}
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "SetApiKey",
+				"type": "SetVariable",
+				"dependsOn": [
+					{
+						"activity": "AuthKey",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "vApiKey",
+					"value": {
+						"value": "@activity('AuthKey').output.value",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "AuthKey",
+				"type": "WebActivity",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"method": "GET",
+					"url": {
+						"value": "@pipeline().parameters.pKeyVaultSecretPath",
+						"type": "Expression"
+					},
+					"connectVia": {
+						"referenceName": "AutoResolveIntegrationRuntime",
+						"type": "IntegrationRuntimeReference"
+					},
+					"authentication": {
+						"type": "MSI",
+						"resource": "https://vault.azure.net"
+					}
+				}
+			}
+		],
+		"parameters": {
+			"pAzureSQLSecretName": {
+				"type": "string",
+				"defaultValue": "DLSqlCntrlConn"
+			},
+			"pAzureSQLSchemaName": {
+				"type": "string",
+				"defaultValue": "etl"
+			},
+			"pAzureSQLTableName": {
+				"type": "string",
+				"defaultValue": "ControlTablePrevedereAPIToAdls"
+			},
+			"pProvider": {
+				"type": "string",
+				"defaultValue": "f2882eed-22c6-4159-8d19-0a45e1095ddd"
+			},
+			"pProviderid": {
+				"type": "string",
+				"defaultValue": "PREVHOUSTPSSMSTC"
+			},
+			"pKey": {
+				"type": "string",
+				"defaultValue": "PrevedereAPIKey"
+			},
+			"pBronzeNotebookPath": {
+				"type": "string",
+				"defaultValue": "/BronzeToSilverDataProcessing/Prevedere/LoadPrevedereSilverTables"
+			},
+			"pBronzeFolderName": {
+				"type": "string",
+				"defaultValue": "bronze"
+			},
+			"pTriggerName": {
+				"type": "string",
+				"defaultValue": "trgPrevedereApi"
+			},
+			"pKeyVaultSecretPath": {
+				"type": "string",
+				"defaultValue": "https://kvl-keyvlt-usc-dev.vault.azure.net/secrets/PrevedereAPIKey/36b3376ea2f543f19a18cae44de7af94?api-version=7.0"
+			}
+		},
+		"variables": {
+			"vApiKey": {
+				"type": "String"
+			},
+			"vLandingZonePath": {
+				"type": "String"
+			},
+			"vFileName": {
+				"type": "String"
+			},
+			"vRunDate": {
+				"type": "String"
+			}
+		},
+		"folder": {
+			"name": "Prevedere"
+		},
+		"annotations": []
+	}
+}

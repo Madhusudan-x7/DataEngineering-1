@@ -1,0 +1,279 @@
+{
+	"name": "plNetworkExtractProfiseeToSilverADLS",
+	"properties": {
+		"activities": [
+			{
+				"name": "SetCurrentCSTDateTimeForFileName",
+				"description": "Setting up the current datetime that will be used for filename in data lake\n",
+				"type": "SetVariable",
+				"dependsOn": [],
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "varCurrentDateTimeCSTFilename",
+					"value": {
+						"value": "@concat(formatDateTime(convertTimeZone(utcnow(),'UTC','Central Standard Time'),'yyyy_MM_dd_HH_mm_ss'),'_CST')",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "SetCurrentCSTDateTime",
+				"description": "Setting current date time in CST format for setting up watermark for next load",
+				"type": "SetVariable",
+				"dependsOn": [],
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "varCurrentDateTimeCST",
+					"value": {
+						"value": "@formatDateTime(convertTimeZone(utcnow(),'UTC','Central Standard Time'),'yyyy-MM-dd HH:mm:ss')\n",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "Set_YYYYMMDD_Path",
+				"description": "Setting Date path for ADLS folders",
+				"type": "SetVariable",
+				"dependsOn": [],
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "varYYYYMMDD",
+					"value": {
+						"value": "@formatDateTime(convertTimeZone(utcnow(),'UTC','Central Standard Time'),'yyyy/MM/dd')",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "GetProfiseeTableList",
+				"description": "getting the list of oracle tables (EBS & EDW) from control table stored in Azure SQL",
+				"type": "Lookup",
+				"dependsOn": [
+					{
+						"activity": "SetCurrentCSTDateTimeForFileName",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					},
+					{
+						"activity": "SetCurrentCSTDateTime",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					},
+					{
+						"activity": "Set_YYYYMMDD_Path",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "AzureSqlSource",
+						"sqlReaderQuery": {
+							"value": "select *,convert(varchar,isnull(DeltaLastWatermarkDateTime,'1900-01-01'),120) as FormattedLastWatermarkDateTime \nfrom etl.ControlTableProfisee cts \ninner join etl.LinkedServiceConnectionStore lsc on cts.SourceDatabaseName = lsc.DatabaseName\nwhere cts.SourceType = 'ProfiseeExport'\nand cts.Domain  = 'Network'\nand cts.IsActiveFlag = 'Y'\nand (PipelineTriggerName = '@{pipeline().parameters.PipelineTriggerName}'\nor PipelineTriggerName IS NULL)",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "dsAzureSQLParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pSecretName": {
+								"value": "@pipeline().parameters.pAzureSQLSecretName",
+								"type": "Expression"
+							},
+							"pSchemaName": {
+								"value": "@pipeline().parameters.pAzureSQLSchemaName",
+								"type": "Expression"
+							},
+							"pTableName": {
+								"value": "@pipeline().parameters.pAzureSQLTableName",
+								"type": "Expression"
+							}
+						}
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "IterateProfiseeTableList",
+				"type": "ForEach",
+				"dependsOn": [
+					{
+						"activity": "GetProfiseeTableList",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@activity('GetProfiseeTableList').output.value",
+						"type": "Expression"
+					},
+					"activities": [
+						{
+							"name": "CopyProfiseeDataToSilver",
+							"type": "Copy",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"source": {
+									"type": "AzureSqlSource",
+									"sqlReaderQuery": {
+										"value": "SELECT @{item().SourceExtractSQL} FROM @{item().SourceSchemaView}.@{item().SourceViewName} ",
+										"type": "Expression"
+									},
+									"queryTimeout": "02:00:00",
+									"partitionOption": "None"
+								},
+								"sink": {
+									"type": "ParquetSink",
+									"storeSettings": {
+										"type": "AzureBlobFSWriteSettings"
+									},
+									"formatSettings": {
+										"type": "ParquetWriteSettings"
+									}
+								},
+								"enableStaging": false,
+								"translator": {
+									"type": "TabularTranslator",
+									"typeConversion": true,
+									"typeConversionSettings": {
+										"allowDataTruncation": true,
+										"treatBooleanAsNumber": false
+									}
+								}
+							},
+							"inputs": [
+								{
+									"referenceName": "dsProfiseeSQLParam",
+									"type": "DatasetReference",
+									"parameters": {
+										"pServerName": {
+											"value": "@item().SourceServerName",
+											"type": "Expression"
+										},
+										"pDatabaseName": {
+											"value": "@item().SourceDatabaseName",
+											"type": "Expression"
+										},
+										"pUserName": {
+											"value": "@item().SourceUserName",
+											"type": "Expression"
+										},
+										"pSecretName": {
+											"value": "@item().SourceKeyVaultSecretName",
+											"type": "Expression"
+										},
+										"pSchemaName": {
+											"value": "@item().SourceSchemaView",
+											"type": "Expression"
+										},
+										"pTableName": {
+											"value": "@item().SourceViewName ",
+											"type": "Expression"
+										}
+									}
+								}
+							],
+							"outputs": [
+								{
+									"referenceName": "dsADLSParquetParam",
+									"type": "DatasetReference",
+									"parameters": {
+										"pDataLakeContainer": {
+											"value": "@item().DataLakeContainer",
+											"type": "Expression"
+										},
+										"pDataLakeDirectory": {
+											"value": "@item().DataLakeFolder",
+											"type": "Expression"
+										},
+										"pDataLakeFile": {
+											"value": "@Concat(item().SourceDatabaseName, '/',item().SourceSchemaName,'/',item().SourceTableName,'.parquet')",
+											"type": "Expression"
+										}
+									}
+								}
+							]
+						}
+					]
+				}
+			}
+		],
+		"parameters": {
+			"pAzureSQLServerName": {
+				"type": "string",
+				"defaultValue": "sqlsvr-datalake-usc-dev.database.windows.net"
+			},
+			"pAzureSQLDatabaseName": {
+				"type": "string",
+				"defaultValue": "sqldb-dl-control-usc-dev"
+			},
+			"pAzureSQLUserName": {
+				"type": "string",
+				"defaultValue": "DataLake"
+			},
+			"pAzureSQLSecretName": {
+				"type": "string",
+				"defaultValue": "DLSqlCntrlConn"
+			},
+			"pAzureSQLSchemaName": {
+				"type": "string",
+				"defaultValue": "etl"
+			},
+			"pAzureSQLTableName": {
+				"type": "string",
+				"defaultValue": "ControlTableProfisee"
+			},
+			"PipelineTriggerName": {
+				"type": "string",
+				"defaultValue": null
+			}
+		},
+		"variables": {
+			"varCurrentDateTimeCSTFilename": {
+				"type": "String",
+				"defaultValue": "1900-01-01 00:00:00"
+			},
+			"varCurrentDateTimeCST": {
+				"type": "String",
+				"defaultValue": "1900-01-01 00:00:00"
+			},
+			"varExtractMethod": {
+				"type": "String"
+			},
+			"varYYYYMMDD": {
+				"type": "String"
+			}
+		},
+		"folder": {
+			"name": "Obsolete/Profisee/testmg"
+		},
+		"annotations": [],
+		"lastPublishTime": "2021-10-26T21:39:18Z"
+	},
+	"type": "Microsoft.Synapse/workspaces/pipelines"
+}

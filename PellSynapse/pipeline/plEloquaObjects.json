@@ -1,0 +1,585 @@
+{
+	"name": "plEloquaObjects",
+	"properties": {
+		"activities": [
+			{
+				"name": "GetEloquaParams",
+				"description": "This is used to read the Eloqua objects configurations from the Eloqua Control Table",
+				"type": "Lookup",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "AzureSqlSource",
+						"sqlReaderQuery": {
+							"value": "SELECT cte.*,utc.isActiveFlag, utc.UnityCatalogName,utc.StorageAccountName FROM etl.ControlTableEloqua cte \ninner join etl.UnityCatalogConnectionStore utc on cte.UCFlag = utc.IsActiveFlag\nWHERE PipelineTriggerName = 'tgrEloquaObjects' and cte.isActiveFlag='Y' ORDER BY Id;",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "dsAzureSQLParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pSecretName": {
+								"value": "@pipeline().parameters.pAzureSQLSecretName",
+								"type": "Expression"
+							},
+							"pSchemaName": {
+								"value": "@pipeline().parameters.pAzureSQLSchemaName",
+								"type": "Expression"
+							},
+							"pTableName": {
+								"value": "@pipeline().parameters.pAzureSQLTableName",
+								"type": "Expression"
+							}
+						}
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "ForEachEloquaObjects",
+				"description": "Processes each Eloqua objects like Contacts, Forms, Emails etc.",
+				"type": "ForEach",
+				"dependsOn": [
+					{
+						"activity": "SetCurrentDirectory",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@activity('GetEloquaParams').output.value",
+						"type": "Expression"
+					},
+					"isSequential": true,
+					"activities": [
+						{
+							"name": "Is Response Nested",
+							"description": "It checks if the response contain nested object and requires splitting ",
+							"type": "IfCondition",
+							"dependsOn": [],
+							"userProperties": [],
+							"typeProperties": {
+								"expression": {
+									"value": "@equals(item().isResponseNested,'Y')",
+									"type": "Expression"
+								},
+								"ifFalseActivities": [
+									{
+										"name": "Copy Rest to Parquet",
+										"description": "This activity copies the data from REST API to BLOL in parquet format.",
+										"type": "Copy",
+										"dependsOn": [],
+										"policy": {
+											"timeout": "0.12:00:00",
+											"retry": 0,
+											"retryIntervalInSeconds": 30,
+											"secureOutput": false,
+											"secureInput": false
+										},
+										"userProperties": [],
+										"typeProperties": {
+											"source": {
+												"type": "RestSource",
+												"httpRequestTimeout": "00:03:40",
+												"requestInterval": "00.00:00:00.010",
+												"requestMethod": "GET",
+												"paginationRules": {
+													"supportRFC5988": "true",
+													"AbsoluteUrl.{offset}": "RANGE:1::1",
+													"EndCondition:$['elements']": "Empty"
+												}
+											},
+											"sink": {
+												"type": "ParquetSink",
+												"storeSettings": {
+													"type": "AzureBlobFSWriteSettings"
+												},
+												"formatSettings": {
+													"type": "ParquetWriteSettings"
+												}
+											},
+											"enableStaging": false,
+											"translator": {
+												"value": "@json(item().Mapping)",
+												"type": "Expression"
+											}
+										},
+										"inputs": [
+											{
+												"referenceName": "dsRESTParam",
+												"type": "DatasetReference",
+												"parameters": {
+													"pBaseURL": {
+														"value": "@item().BaseURL",
+														"type": "Expression"
+													},
+													"pUserName": {
+														"value": "@item().UserName",
+														"type": "Expression"
+													},
+													"pPassword": {
+														"value": "@pipeline().parameters.pPassword",
+														"type": "Expression"
+													},
+													"pRelativeURL": {
+														"value": "@item().RelativeURL",
+														"type": "Expression"
+													}
+												}
+											}
+										],
+										"outputs": [
+											{
+												"referenceName": "dsADLSParquetParam",
+												"type": "DatasetReference",
+												"parameters": {
+													"pDataLakeContainer": {
+														"value": "@item().DataLakeDestinationContainer",
+														"type": "Expression"
+													},
+													"pDataLakeDirectory": {
+														"value": "@concat(item().DataLakeDestinationDirectory,utcnow('yyyy'),'/',utcnow('MM'),'/',variables('vCurrentDirectory'),'/')",
+														"type": "Expression"
+													},
+													"pDataLakeFile": {
+														"value": "@pipeline().parameters.pDataLakeFile",
+														"type": "Expression"
+													}
+												}
+											}
+										]
+									}
+								],
+								"ifTrueActivities": [
+									{
+										"name": "Copy Rest to Json",
+										"type": "Copy",
+										"dependsOn": [],
+										"policy": {
+											"timeout": "0.12:00:00",
+											"retry": 0,
+											"retryIntervalInSeconds": 30,
+											"secureOutput": false,
+											"secureInput": false
+										},
+										"userProperties": [],
+										"typeProperties": {
+											"source": {
+												"type": "RestSource",
+												"httpRequestTimeout": "00:30:40",
+												"requestInterval": "00.00:00:00.010",
+												"requestMethod": "GET",
+												"paginationRules": {
+													"supportRFC5988": "true",
+													"AbsoluteUrl.{offset}": "RANGE:1::1",
+													"EndCondition:$['elements']": "Empty"
+												}
+											},
+											"sink": {
+												"type": "JsonSink",
+												"storeSettings": {
+													"type": "AzureBlobFSWriteSettings"
+												},
+												"formatSettings": {
+													"type": "JsonWriteSettings"
+												}
+											},
+											"enableStaging": false,
+											"translator": {
+												"value": "@json(item().Mapping)",
+												"type": "Expression"
+											}
+										},
+										"inputs": [
+											{
+												"referenceName": "dsRESTParam",
+												"type": "DatasetReference",
+												"parameters": {
+													"pBaseURL": {
+														"value": "@item().BaseURL",
+														"type": "Expression"
+													},
+													"pUserName": {
+														"value": "@item().UserName",
+														"type": "Expression"
+													},
+													"pPassword": {
+														"value": "@pipeline().parameters.pPassword",
+														"type": "Expression"
+													},
+													"pRelativeURL": {
+														"value": "@item().RelativeURL",
+														"type": "Expression"
+													}
+												}
+											}
+										],
+										"outputs": [
+											{
+												"referenceName": "dsADLSJsonParam",
+												"type": "DatasetReference",
+												"parameters": {
+													"pDataLakeContainer": {
+														"value": "@item().DataLakeDestinationContainer",
+														"type": "Expression"
+													},
+													"pDataLakeDirectory": {
+														"value": "@concat(item().DataLakeDestinationDirectory,utcnow('yyyy'),'/',utcnow('MM'),'/',variables('vCurrentDirectory'),'/')",
+														"type": "Expression"
+													},
+													"pDataLakeFile": {
+														"value": "@pipeline().parameters.pDataLakeFile",
+														"type": "Expression"
+													}
+												}
+											}
+										]
+									}
+								]
+							}
+						},
+						{
+							"name": "Load Silver Tables",
+							"description": "Creates silver table for the data fetched",
+							"type": "DatabricksNotebook",
+							"dependsOn": [
+								{
+									"activity": "Is Response Nested",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"notebookPath": "/Eloqua/Load Eloqua Silver Tables",
+								"baseParameters": {
+									"SCDType": {
+										"value": "1",
+										"type": "Expression"
+									},
+									"SourceDatabaseName": {
+										"value": "@string(item().SourceDatabaseName)",
+										"type": "Expression"
+									},
+									"SourceExtractMethod": {
+										"value": "@string(item().SourceExtractMethod)",
+										"type": "Expression"
+									},
+									"SourceKeyColumnList": {
+										"value": "@string(item().SourceKeyColumnList)",
+										"type": "Expression"
+									},
+									"SourceTableName": {
+										"value": "@string(item().SourceTableName)",
+										"type": "Expression"
+									},
+									"SourceTablePath": {
+										"value": "@concat(item().DataLakeDestinationDirectory,utcnow('yyyy'),'/',utcnow('MM'),'/',variables('vCurrentDirectory'),'/')",
+										"type": "Expression"
+									},
+									"DeltaUpdateWatermarkColumnName": {
+										"value": "@string(item().DeltaUpdateWatermarkColumnName)",
+										"type": "Expression"
+									},
+									"UnityCatalogName": {
+										"value": "@item().UnityCatalogName",
+										"type": "Expression"
+									},
+									"UCSchemaPrefix": {
+										"value": "@item().UCSchemaPrefix",
+										"type": "Expression"
+									},
+									"DataLakeDestinationContainer": {
+										"value": "@item().DataLakeDestinationContainer",
+										"type": "Expression"
+									},
+									"StorageAccountName": {
+										"value": "@item().StorageAccountName",
+										"type": "Expression"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "lnkAzureDatabricks",
+								"type": "LinkedServiceReference"
+							}
+						},
+						{
+							"name": "Update Control Table",
+							"description": "Updates the control table",
+							"type": "SqlServerStoredProcedure",
+							"dependsOn": [
+								{
+									"activity": "Load Silver Tables",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"storedProcedureName": "[etl].[UpdateControlTableEloqua]",
+								"storedProcedureParameters": {
+									"PipelineLastRunDateTime": {
+										"value": {
+											"value": "@variables('vCurrentDateTime')",
+											"type": "Expression"
+										},
+										"type": "DateTime"
+									},
+									"SourceTableName": {
+										"value": {
+											"value": "@item().SourceTableName",
+											"type": "Expression"
+										},
+										"type": "String"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "lnkAzureSqlParameterized",
+								"type": "LinkedServiceReference",
+								"parameters": {
+									"SecretName": {
+										"value": "@pipeline().parameters.pAzureSQLSecretName",
+										"type": "Expression"
+									}
+								}
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "SetLastUpdatedTime",
+				"description": "This is used to pass lastUpdatedAt parameter for API call.",
+				"type": "SetVariable",
+				"dependsOn": [
+					{
+						"activity": "GetEloquaParams",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "vLastUpdatedAt",
+					"value": {
+						"value": "@{div(sub(ticks(adddays(string(activity('GetEloquaParams').output.value[0].PipelineLastRunDateTime), 0)), ticks('1970-01-01T00:00:00.000')),10000000)}",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "SetCurrentTime",
+				"description": "This is used to update the control table [Pipeline last run date] ",
+				"type": "SetVariable",
+				"dependsOn": [
+					{
+						"activity": "SetLastUpdatedTime",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "vCurrentDateTime",
+					"value": {
+						"value": "@formatDateTime(convertTimeZone(utcnow(),'UTC','Central Standard Time'),'yyyy-MM-dd HH:mm:ss')",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "Contacts Silver To Gold Notebook",
+				"type": "DatabricksNotebook",
+				"dependsOn": [
+					{
+						"activity": "CustomObjects Silver To Gold Notebook",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"notebookPath": "/Eloqua/Eloqua Contacts Silver To Gold",
+					"baseParameters": {
+						"UnityCatalogName": {
+							"value": "@activity('GetEloquaParams').output.value[0].UnityCatalogName",
+							"type": "Expression"
+						},
+						"StorageAccountName": {
+							"value": "@activity('GetEloquaParams').output.value[0].StorageAccountName",
+							"type": "Expression"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "lnkAzureDatabricks",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "CustomObjects Silver To Gold Notebook",
+				"type": "DatabricksNotebook",
+				"dependsOn": [
+					{
+						"activity": "ForEachEloquaObjects",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"notebookPath": "/Eloqua/Eloqua CustomObjects Silver To Gold",
+					"baseParameters": {
+						"UnityCatalogName": {
+							"value": "@activity('GetEloquaParams').output.value[0].UnityCatalogName",
+							"type": "Expression"
+						},
+						"StorageAccountName": {
+							"value": "@activity('GetEloquaParams').output.value[0].StorageAccountName",
+							"type": "Expression"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "lnkAzureDatabricks",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SetCurrentDirectory",
+				"description": "This represents the directory for current execution. It distinguishes the two pipeline runs for a single day.",
+				"type": "SetVariable",
+				"dependsOn": [
+					{
+						"activity": "SetCurrentTime",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "vCurrentDirectory",
+					"value": {
+						"value": "@formatDateTime(convertTimeZone(utcnow(),'UTC','Central Standard Time'),'dd_HH_mm')",
+						"type": "Expression"
+					}
+				}
+			}
+		],
+		"parameters": {
+			"pAzureSQLServerName": {
+				"type": "string",
+				"defaultValue": "sqlsvr-datalake-usc-dev.database.windows.net"
+			},
+			"pAzureSQLDatabaseName": {
+				"type": "string",
+				"defaultValue": "sqldb-dl-control-usc-dev"
+			},
+			"pAzureSQLUserName": {
+				"type": "string",
+				"defaultValue": "Datalake"
+			},
+			"pAzureSQLSecretName": {
+				"type": "string",
+				"defaultValue": "DLSqlCntrlConn"
+			},
+			"pAzureSQLSchemaName": {
+				"type": "string",
+				"defaultValue": "etl"
+			},
+			"pAzureSQLTableName": {
+				"type": "string",
+				"defaultValue": "ControlTableEloqua"
+			},
+			"pDataLakeFile": {
+				"type": "string",
+				"defaultValue": "eloqua_objects"
+			},
+			"pPassword": {
+				"type": "string",
+				"defaultValue": "EloquaAPIPwd"
+			}
+		},
+		"variables": {
+			"vCurrentDateTime": {
+				"type": "String"
+			},
+			"vLastUpdatedAt": {
+				"type": "String"
+			},
+			"vCurrentDirectory": {
+				"type": "String"
+			},
+			"vRunDate": {
+				"type": "String"
+			}
+		},
+		"folder": {
+			"name": "Eloqua"
+		},
+		"annotations": []
+	}
+}

@@ -1,0 +1,726 @@
+{
+	"name": "plExtractLoadHistoricalDataYearlyOracleToDataLake",
+	"properties": {
+		"activities": [
+			{
+				"name": "SetCurrentYear",
+				"type": "SetVariable",
+				"dependsOn": [],
+				"policy": {
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "varCurrentYear",
+					"value": {
+						"value": "@formatDateTime(convertTimeZone(utcnow(),'UTC','Central Standard Time'),'yyyy')",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "Until1",
+				"type": "Until",
+				"dependsOn": [
+					{
+						"activity": "GetOracleTableList",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@equals(formatdatetime(variables('varExtractDataEndDate'),'yyyy'),variables('varCurrentYear'))\n\n",
+						"type": "Expression"
+					},
+					"activities": [
+						{
+							"name": "SetNextExtractDataEndDate",
+							"type": "SetVariable",
+							"dependsOn": [
+								{
+									"activity": "SetNextExtractDataStartDate",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "varExtractDataEndDate",
+								"value": {
+									"value": "@formatDateTime(addToTime(addToTime(variables('varExtractDataStartDate'),1,'Year'),-1,'Minute'),'yyyy-MM-dd HH:mm:ss')",
+									"type": "Expression"
+								}
+							}
+						},
+						{
+							"name": "SetNextExtractDataStartDate",
+							"type": "SetVariable",
+							"dependsOn": [
+								{
+									"activity": "LogCopySuccessDelta",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "varExtractDataStartDate",
+								"value": {
+									"value": "@formatDateTime(variables('varExtractDataEndDate'),'yyyy-MM-dd HH:mm:ss')",
+									"type": "Expression"
+								}
+							}
+						},
+						{
+							"name": "CopyOnPremToADLSDelta",
+							"type": "Copy",
+							"dependsOn": [
+								{
+									"activity": "Set_YYYYMMDD_Path",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"source": {
+									"type": "OracleSource",
+									"oracleReaderQuery": {
+										"value": "SELECT * FROM @{activity('GetOracleTableList').output.value[0].SourceSchemaName}.@{activity('GetOracleTableList').output.value[0].SourceTableName} \nWHERE (@{activity('GetOracleTableList').output.value[0].DeltaUpdateWatermarkColumnName} IS NOT NULL \nAND @{activity('GetOracleTableList').output.value[0].DeltaUpdateWatermarkColumnName} > \nTO_DATE('@{variables('varExtractDataStartDate')}','YYYY-MM-DD HH24:MI:SS') \nAND @{activity('GetOracleTableList').output.value[0].DeltaUpdateWatermarkColumnName} <= \nTO_DATE('@{variables('varExtractDataEndDate')}','YYYY-MM-DD HH24:MI:SS'))\nAND ROWNUM <= 100;",
+										"type": "Expression"
+									},
+									"partitionOption": "None",
+									"queryTimeout": "02:00:00"
+								},
+								"sink": {
+									"type": "ParquetSink",
+									"storeSettings": {
+										"type": "AzureBlobFSWriteSettings"
+									},
+									"formatSettings": {
+										"type": "ParquetWriteSettings"
+									}
+								},
+								"enableStaging": false,
+								"translator": {
+									"type": "TabularTranslator",
+									"typeConversion": true,
+									"typeConversionSettings": {
+										"allowDataTruncation": true,
+										"treatBooleanAsNumber": false
+									}
+								}
+							},
+							"inputs": [
+								{
+									"referenceName": "dsOracleParam",
+									"type": "DatasetReference",
+									"parameters": {
+										"pSecretName": {
+											"value": "@activity('GetOracleTableList').output.value[0].SourceKeyVaultSecretName",
+											"type": "Expression"
+										},
+										"pSchemaName": {
+											"value": "@activity('GetOracleTableList').output.value[0].SourceSchemaName",
+											"type": "Expression"
+										},
+										"pTableName": {
+											"value": "@activity('GetOracleTableList').output.value[0].SourceTableName",
+											"type": "Expression"
+										}
+									}
+								}
+							],
+							"outputs": [
+								{
+									"referenceName": "dsADLSParquetParam",
+									"type": "DatasetReference",
+									"parameters": {
+										"pDataLakeContainer": {
+											"value": "@activity('GetOracleTableList').output.value[0].DataLakeDestinationContainer",
+											"type": "Expression"
+										},
+										"pDataLakeDirectory": {
+											"value": "@concat(activity('GetOracleTableList').output.value[0].DataLakeDestinationFolder,'/',activity('GetOracleTableList').output.value[0].SourceServerName,'/',activity('GetOracleTableList').output.value[0].SourceDatabaseName,'/delta/',toLower(activity('GetOracleTableList').output.value[0].SourceSchemaName),'/',activity('GetOracleTableList').output.value[0].SourceTableName,'/',variables('varYYYYMMDD'))",
+											"type": "Expression"
+										},
+										"pDataLakeFile": {
+											"value": "@concat('delta_',toLower(activity('GetOracleTableList').output.value[0].SourceTableName),'_',formatDateTime(variables('varExtractDataEndDate'),'yyyy_MM_dd_HH_mm_ss'),'_cst.parquet')",
+											"type": "Expression"
+										}
+									}
+								}
+							]
+						},
+						{
+							"name": "LogCopySuccessDelta",
+							"type": "Copy",
+							"dependsOn": [
+								{
+									"activity": "CopyOnPremToADLSDelta",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"source": {
+									"type": "AzureSqlSource",
+									"sqlReaderQuery": {
+										"value": "SELECT '@{pipeline().DataFactory}' as DataFactoryName,\n'@{pipeline().Pipeline}' as PipelineName,\n'@{pipeline().RunId}' as RunId,\n'Oracle_To_DataLake' as SourceToTargetType,\n'@{activity('GetOracleTableList').output.value[0].SourceExtractMethod}' as SourceExtractMethod,\n'@{activity('GetOracleTableList').output.value[0].SourceFullExtractOverrideFlag}' as SourceFullExtractOverrideFlag,\n'@{activity('GetOracleTableList').output.value[0].SourceServerName}' as SourceServerName,\n'@{activity('GetOracleTableList').output.value[0].SourceDatabaseName}' as SourceDatabaseName,\n'@{activity('GetOracleTableList').output.value[0].SourceSchemaName}' as SourceSchemaName,\n'@{activity('GetOracleTableList').output.value[0].SourceTableName}' as SourceTableName,\n'@{activity('GetOracleTableList').output.value[0].DataLakeDestinationContainer}' as TargetDataLakeContainerName,\n'@{concat(activity('GetOracleTableList').output.value[0].DataLakeDestinationFolder,'/DELTA/',activity('GetOracleTableList').output.value[0].SourceSchemaName,'/',activity('GetOracleTableList').output.value[0].SourceTableName,'/',variables('varYYYYMMDD'))}' as TargetDirectoryName,\n'@{concat('DELTA_',activity('GetOracleTableList').output.value[0].SourceTableName,'_',variables('varExtractDataEndDate'),'.parquet')}' as TargetFileName,\n'@{pipeline().TriggerType}' as TriggerType,\n'@{pipeline().TriggerID}' as TriggerId,\n'@{pipeline().TriggerName}' as TriggerName,\n'@{pipeline().TriggerTime}' as TriggerTime,\n'@{activity('CopyOnPremToADLSDelta').output.rowsCopied}' as RowsCopied,\n'@{activity('CopyOnPremToADLSDelta').output.rowsRead}' as RowsRead,\n'@{activity('CopyOnPremToADLSDelta').output.usedParallelCopies}' as NoParallelCopies,\n'@{activity('CopyOnPremToADLSDelta').output.copyDuration}' as CopyDurationInSecs,\n'@{activity('CopyOnPremToADLSDelta').output.effectiveIntegrationRuntime}' as effectiveIntegrationRuntime,\n'@{activity('CopyOnPremToADLSDelta').output.executionDetails[0].source}' as SourceType,\n'@{activity('CopyOnPremToADLSDelta').output.executionDetails[0].sink}' as SinkType,\n'@{activity('CopyOnPremToADLSDelta').output.executionDetails[0].status}' as ExecutionStatus,\n'@{activity('CopyOnPremToADLSDelta').output.executionDetails[0].start}' as CopyActivityStartTime,\n'@{utcnow()}' as CopyActivityEndTime,\n'@{activity('CopyOnPremToADLSDelta').output.executionDetails[0].detailedDurations.queuingDuration}' as CopyActivityQueuingDurationInSecs,\n'@{activity('CopyOnPremToADLSDelta').output.executionDetails[0].detailedDurations.timeToFirstByte}' as CopyActivityPreCopyScriptDurationInSecs,\n'@{activity('CopyOnPremToADLSDelta').output.executionDetails[0].detailedDurations.transferDuration}' as CopyActivityTransferDurationInSecs,\nnull as ErrorMessage",
+										"type": "Expression"
+									},
+									"queryTimeout": "02:00:00",
+									"partitionOption": "None"
+								},
+								"sink": {
+									"type": "AzureSqlSink"
+								},
+								"enableStaging": false,
+								"translator": {
+									"type": "TabularTranslator",
+									"typeConversion": true,
+									"typeConversionSettings": {
+										"allowDataTruncation": true,
+										"treatBooleanAsNumber": false
+									}
+								}
+							},
+							"inputs": [
+								{
+									"referenceName": "dsAzureSQLParam",
+									"type": "DatasetReference",
+									"parameters": {
+										"pSecretName": {
+											"value": "@pipeline().parameters.pAzureSQLSecretName",
+											"type": "Expression"
+										},
+										"pSchemaName": {
+											"value": "@pipeline().parameters.pAzureSQLSchemaName",
+											"type": "Expression"
+										},
+										"pTableName": {
+											"value": "@pipeline().parameters.pAzureSQLTableName",
+											"type": "Expression"
+										}
+									}
+								}
+							],
+							"outputs": [
+								{
+									"referenceName": "dsAzureSQLParam",
+									"type": "DatasetReference",
+									"parameters": {
+										"pSecretName": {
+											"value": "@pipeline().parameters.pAzureSQLSecretName",
+											"type": "Expression"
+										},
+										"pSchemaName": {
+											"value": "@activity('GetOracleTableList').output.value[0].AuditSchemaName",
+											"type": "Expression"
+										},
+										"pTableName": {
+											"value": "@activity('GetOracleTableList').output.value[0].AuditTableName",
+											"type": "Expression"
+										}
+									}
+								}
+							]
+						},
+						{
+							"name": "LogCopyFailureDelta",
+							"type": "Copy",
+							"dependsOn": [
+								{
+									"activity": "CopyOnPremToADLSDelta",
+									"dependencyConditions": [
+										"Failed"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"source": {
+									"type": "AzureSqlSource",
+									"sqlReaderQuery": {
+										"value": "SELECT '@{pipeline().DataFactory}' as DataFactoryName,\n'@{pipeline().Pipeline}' as PipelineName,\n'@{pipeline().RunId}' as RunId,\n'Oracle_To_DataLake' as SourceToTargetType,\n'@{activity('GetOracleTableList').output.value[0].SourceExtractMethod}' as SourceExtractMethod,\n'@{activity('GetOracleTableList').output.value[0].SourceFullExtractOverrideFlag}' as SourceFullExtractOverrideFlag,\n'@{activity('GetOracleTableList').output.value[0].SourceServerName}' as SourceServerName,\n'@{activity('GetOracleTableList').output.value[0].SourceDatabaseName}' as SourceDatabaseName,\n'@{activity('GetOracleTableList').output.value[0].SourceSchemaName}' as SourceSchemaName,\n'@{activity('GetOracleTableList').output.value[0].SourceTableName}' as SourceTableName,\n'@{activity('GetOracleTableList').output.value[0].DataLakeDestinationContainer}' as TargetDataLakeContainerName,\n'@{concat(activity('GetOracleTableList').output.value[0].DataLakeDestinationFolder,'/DELTA/',activity('GetOracleTableList').output.value[0].SourceSchemaName,'/',activity('GetOracleTableList').output.value[0].SourceTableName,'/',variables('varYYYYMMDD'))}' as TargetDirectoryName,\n'@{concat('DELTA_',activity('GetOracleTableList').output.value[0].SourceTableName,'_',variables('varExtractDataEndDate'),'.parquet')}' as TargetFileName,\n'@{pipeline().TriggerType}' as TriggerType,\n'@{pipeline().TriggerID}' as TriggerId,\n'@{pipeline().TriggerName}' as TriggerName,\n'@{pipeline().TriggerTime}' as TriggerTime,\nnull as RowsCopied,\nnull as RowsRead,\n'@{activity('CopyOnPremToADLSDelta').output.usedParallelCopies}' as NoParallelCopies,\n'@{activity('CopyOnPremToADLSDelta').output.copyDuration}' as CopyDurationInSecs,\n'@{activity('CopyOnPremToADLSDelta').output.effectiveIntegrationRuntime}' as effectiveIntegrationRuntime,\n'@{activity('CopyOnPremToADLSDelta').output.executionDetails[0].source}' as SourceType,\n'@{activity('CopyOnPremToADLSDelta').output.executionDetails[0].sink}' as SinkType,\n'@{activity('CopyOnPremToADLSDelta').output.executionDetails[0].status}' as ExecutionStatus,\n'@{activity('CopyOnPremToADLSDelta').output.executionDetails[0].start}' as CopyActivityStartTime,\n'@{utcnow()}' as CopyActivityEndTime,\n'' as CopyActivityQueuingDurationInSecs,\n'' as CopyActivityPreCopyScriptDurationInSecs,\n'' as CopyActivityTransferDurationInSecs,\n'@{replace(activity('CopyOnPremToADLSDelta').output.errors[0].Message,'''','')}' as ErrorMessage",
+										"type": "Expression"
+									},
+									"queryTimeout": "02:00:00",
+									"partitionOption": "None"
+								},
+								"sink": {
+									"type": "AzureSqlSink"
+								},
+								"enableStaging": false,
+								"translator": {
+									"type": "TabularTranslator",
+									"typeConversion": true,
+									"typeConversionSettings": {
+										"allowDataTruncation": true,
+										"treatBooleanAsNumber": false
+									}
+								}
+							},
+							"inputs": [
+								{
+									"referenceName": "dsAzureSQLParam",
+									"type": "DatasetReference",
+									"parameters": {
+										"pSecretName": {
+											"value": "@pipeline().parameters.pAzureSQLSecretName",
+											"type": "Expression"
+										},
+										"pSchemaName": {
+											"value": "@pipeline().parameters.pAzureSQLSchemaName",
+											"type": "Expression"
+										},
+										"pTableName": {
+											"value": "@pipeline().parameters.pAzureSQLTableName",
+											"type": "Expression"
+										}
+									}
+								}
+							],
+							"outputs": [
+								{
+									"referenceName": "dsAzureSQLParam",
+									"type": "DatasetReference",
+									"parameters": {
+										"pSecretName": {
+											"value": "@pipeline().parameters.pAzureSQLSecretName",
+											"type": "Expression"
+										},
+										"pSchemaName": {
+											"value": "@activity('GetOracleTableList').output.value[0].AuditSchemaName",
+											"type": "Expression"
+										},
+										"pTableName": {
+											"value": "@activity('GetOracleTableList').output.value[0].AuditTableName",
+											"type": "Expression"
+										}
+									}
+								}
+							]
+						},
+						{
+							"name": "Set_YYYYMMDD_Path",
+							"type": "SetVariable",
+							"dependsOn": [],
+							"policy": {
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "varYYYYMMDD",
+								"value": {
+									"value": "@formatDateTime(variables('varExtractDataEndDate'),'yyyy/MM/dd_hh_mm')",
+									"type": "Expression"
+								}
+							}
+						},
+						{
+							"name": "LoadDeltaLake",
+							"type": "DatabricksNotebook",
+							"dependsOn": [
+								{
+									"activity": "SetNextExtractDataEndDate",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"notebookPath": {
+									"value": "@variables('varNotebookPath')",
+									"type": "Expression"
+								},
+								"baseParameters": {
+									"SourceServerName": {
+										"value": "@activity('GetOracleTableList').output.value[0].SourceServerName",
+										"type": "Expression"
+									},
+									"SourceDatabaseName": {
+										"value": "@activity('GetOracleTableList').output.value[0].SourceDatabaseName",
+										"type": "Expression"
+									},
+									"SourceSchemaName": {
+										"value": "@activity('GetOracleTableList').output.value[0].SourceSchemaName",
+										"type": "Expression"
+									},
+									"SourceTableName": {
+										"value": "@activity('GetOracleTableList').output.value[0].SourceTableName",
+										"type": "Expression"
+									},
+									"SourceTablePath": {
+										"value": "@concat(activity('GetOracleTableList').output.value[0].DataLakeDestinationFolder,'/',activity('GetOracleTableList').output.value[0].SourceServerName,'/',activity('GetOracleTableList').output.value[0].SourceDatabaseName,'/delta/',toLower(activity('GetOracleTableList').output.value[0].SourceSchemaName),'/',toLower(activity('GetOracleTableList').output.value[0].SourceTableName),'/',variables('varYYYYMMDD'),'/')",
+										"type": "Expression"
+									},
+									"SourceExtractMethod": {
+										"value": "@activity('GetOracleTableList').output.value[0].SourceExtractMethod",
+										"type": "Expression"
+									},
+									"SourceKeyColumnList": {
+										"value": "@activity('GetOracleTableList').output.value[0].SourceKeyColumnList",
+										"type": "Expression"
+									},
+									"DeltaUpdateWatermarkColumnName": {
+										"value": "@activity('GetOracleTableList').output.value[0].DeltaUpdateWatermarkColumnName",
+										"type": "Expression"
+									},
+									"SCDType": {
+										"value": "@activity('GetOracleTableList').output.value[0].SCDType",
+										"type": "Expression"
+									},
+									"BronzeTableAppend": {
+										"value": "@pipeline().parameters.pBronzeTableAppend",
+										"type": "Expression"
+									},
+									"BronzeTableDeleteCondition": {
+										"value": "@pipeline().parameters.pBronzeTableDeleteCondition",
+										"type": "Expression"
+									},
+									"UnityCatalogName": {
+										"value": "@activity('GetOracleTableList').output.value[0].UnityCatalogName",
+										"type": "Expression"
+									},
+									"UCFlag": {
+										"value": "@activity('GetOracleTableList').output.value[0].UCFlag",
+										"type": "Expression"
+									},
+									"UCSchemaPrefix": {
+										"value": "@activity('GetOracleTableList').output.value[0].UCSchemaPrefix",
+										"type": "Expression"
+									},
+									"DataLakeDestinationContainer": {
+										"value": "@activity('GetOracleTableList').output.value[0].DataLakeDestinationContainer",
+										"type": "Expression"
+									},
+									"StorageAccountName": {
+										"value": "@activity('GetOracleTableList').output.value[0].StorageAccountName",
+										"type": "Expression"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "lnkAzureDatabricks",
+								"type": "LinkedServiceReference"
+							}
+						}
+					],
+					"timeout": "7.00:00:00"
+				}
+			},
+			{
+				"name": "SetExtractDataStartDate",
+				"type": "SetVariable",
+				"dependsOn": [],
+				"policy": {
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "varExtractDataStartDate",
+					"value": {
+						"value": "@formatDateTime(pipeline().parameters.ExtractDataFrom,'yyyy-MM-dd HH:mm:ss')",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "SetExtractDataEndDate",
+				"type": "SetVariable",
+				"dependsOn": [
+					{
+						"activity": "SetExtractDataStartDate",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "varExtractDataEndDate",
+					"value": {
+						"value": "@formatDateTime(addToTime(addToTime(variables('varExtractDataStartDate'),1,'Year'),-1,'Minute'),'yyyy-MM-dd HH:mm:ss')",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "GetOracleTableList",
+				"description": "getting the list of oracle tables (EBS & EDW) from control table stored in Azure SQL",
+				"type": "Lookup",
+				"dependsOn": [
+					{
+						"activity": "SetCurrentYear",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					},
+					{
+						"activity": "SetExtractDataEndDate",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "AzureSqlSource",
+						"sqlReaderQuery": {
+							"value": "select cts.*, lsc.*, utc.UnityCatalogName, utc.StorageAccountName,convert(varchar,isnull(DeltaLastWatermarkDateTime,'1900-01-01'),120) as FormattedLastWatermarkDateTime \nfrom etl.ControlTableSourceToAdlsLoad cts \ninner join etl.LinkedServiceConnectionStore lsc on cts.SourceDatabaseName = lsc.DatabaseName\ninner join etl.UnityCatalogConnectionStore utc on cts.IsActiveFlag = utc.IsActiveFlag\nwhere \nlsc.SourceServerName = '@{pipeline().parameters.pSourceServerName}'\nand cts.SourceDatabaseName = '@{pipeline().parameters.pSourceDatabaseName}'\nand cts.SourceSchemaName = '@{pipeline().parameters.pSourceSchemaName}'\nand cts.SourceTableName = '@{pipeline().parameters.pSourceTableName}'\nand cts.SourceType = 'Oracle';",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "dsAzureSQLParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pSecretName": {
+								"value": "@pipeline().parameters.pAzureSQLSecretName",
+								"type": "Expression"
+							},
+							"pSchemaName": {
+								"value": "@pipeline().parameters.pAzureSQLSchemaName",
+								"type": "Expression"
+							},
+							"pTableName": {
+								"value": "@pipeline().parameters.pAzureSQLTableName",
+								"type": "Expression"
+							}
+						}
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "UpdateControlTable",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "Until1",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "etl.UpdateControlTableSetHistoricalDataLoadYearFlag",
+					"storedProcedureParameters": {
+						"SourceServerName": {
+							"value": {
+								"value": "@activity('GetOracleTableList').output.value[0].SourceServerName",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"SourceDatabaseName": {
+							"value": {
+								"value": "@activity('GetOracleTableList').output.value[0].SourceDatabaseName",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"SourceSchemaName": {
+							"value": {
+								"value": "@activity('GetOracleTableList').output.value[0].SourceSchemaName",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"SourceTableName": {
+							"value": {
+								"value": "@activity('GetOracleTableList').output.value[0].SourceTableName",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"SourceType": {
+							"value": {
+								"value": "@activity('GetOracleTableList').output.value[0].SourceType",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"WatermarkDateTime": {
+							"value": {
+								"value": "@variables('varExtractDataEndDate')",
+								"type": "Expression"
+							},
+							"type": "Datetime"
+						},
+						"SourceExtractMethod": {
+							"value": {
+								"value": "@activity('GetOracleTableList').output.value[0].SourceExtractMethod",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "lnkAzureSqlParameterized",
+					"type": "LinkedServiceReference",
+					"parameters": {
+						"SecretName": {
+							"value": "@pipeline().parameters.pAzureSQLSecretName",
+							"type": "Expression"
+						}
+					}
+				}
+			}
+		],
+		"parameters": {
+			"ExtractDataFrom": {
+				"type": "string",
+				"defaultValue": "2017-01-01 00:00:00"
+			},
+			"pAzureSQLServerName": {
+				"type": "string",
+				"defaultValue": "sqlsvr-datalake-usc-dev.database.windows.net"
+			},
+			"pAzureSQLDatabaseName": {
+				"type": "string",
+				"defaultValue": "sqldb-dl-control-usc-dev"
+			},
+			"pAzureSQLUserName": {
+				"type": "string",
+				"defaultValue": "DataLake"
+			},
+			"pAzureSQLSecretName": {
+				"type": "string",
+				"defaultValue": "DLSqlCntrlConn"
+			},
+			"pAzureSQLSchemaName": {
+				"type": "string",
+				"defaultValue": "etl"
+			},
+			"pAzureSQLTableName": {
+				"type": "string",
+				"defaultValue": "ControlTableSourceToAdlsLoad"
+			},
+			"pSourceServerName": {
+				"type": "string",
+				"defaultValue": "oraerpdb"
+			},
+			"pSourceDatabaseName": {
+				"type": "string",
+				"defaultValue": "ERPPROD"
+			},
+			"pSourceSchemaName": {
+				"type": "string",
+				"defaultValue": "wip"
+			},
+			"pSourceTableName": {
+				"type": "string",
+				"defaultValue": "Wip_Lines"
+			},
+			"PipelineTriggerName": {
+				"type": "string",
+				"defaultValue": null
+			},
+			"pBronzeTableAppend": {
+				"type": "string",
+				"defaultValue": "NA"
+			},
+			"pBronzeTableDeleteCondition": {
+				"type": "string",
+				"defaultValue": "NA"
+			}
+		},
+		"variables": {
+			"varExtractDataStartDate": {
+				"type": "String"
+			},
+			"varExtractDataEndDate": {
+				"type": "String"
+			},
+			"varCurrentYear": {
+				"type": "String"
+			},
+			"varYYYYMMDD": {
+				"type": "String"
+			},
+			"varNotebookPath": {
+				"type": "String",
+				"defaultValue": "/BronzeToSilverDataProcessing/Load_Silver_Tables"
+			}
+		},
+		"folder": {
+			"name": "DataLake"
+		},
+		"annotations": [],
+		"lastPublishTime": "2021-10-26T21:39:14Z"
+	},
+	"type": "Microsoft.Synapse/workspaces/pipelines"
+}

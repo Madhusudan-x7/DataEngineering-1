@@ -1,0 +1,417 @@
+{
+	"name": "plLoadNiceDataMaster",
+	"properties": {
+		"description": "Pipeline to load data from Nice InContact API's to Datalake",
+		"activities": [
+			{
+				"name": "QueryControlTableForLoad",
+				"type": "Lookup",
+				"dependsOn": [
+					{
+						"activity": "SetDefaultDate",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "AzureSqlSource",
+						"sqlReaderQuery": {
+							"value": "SELECT \ncts.*,\ncase when '@{equals(pipeline().parameters.pRunStartDate,'NA')}'='TRUE'\nthen\n    etl.GetRestApiParams(ServiceName, SourceEntityName,\n    '@{formatDateTime(convertTimeZone(addDays(utcnow(),-1),'UTC','Central Standard Time'),'yyyy-MM-dd')}',\n    '@{pipeline().parameters.pRunMonthly}') \nelse\n    etl.GetRestApiParams(ServiceName, SourceEntityName,\n    '@{variables('vDefaultDate')}',\n    '@{pipeline().parameters.pRunMonthly}') \nend as 'Params', utc.UnityCatalogName, utc.StorageAccountName\nFROM etl.ControlTableRestAPIToAdls cts\ninner join etl.UnityCatalogConnectionStore utc on cts.IsActiveFlag = utc.IsActiveFlag\nWHERE cts.isActiveFlag = 'Y' and cts.TriggerName = 'trgNiceApi'\n;",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "dsAzureSQLParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pSecretName": {
+								"value": "@pipeline().parameters.pAzureSQLSecretName",
+								"type": "Expression"
+							},
+							"pSchemaName": {
+								"value": "@pipeline().parameters.pAzureSQLSchemaName",
+								"type": "Expression"
+							},
+							"pTableName": {
+								"value": "@pipeline().parameters.pAzureSQLTableName",
+								"type": "Expression"
+							}
+						}
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "QueryControlTableInitialStartDate",
+				"type": "Lookup",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "AzureSqlSource",
+						"sqlReaderQuery": {
+							"value": "SELECT    \nmin(ParamValue1) as startdate\nFROM etl.ControlTableRestAPIToAdls \nWHERE TriggerName = 'trgNiceApi' and isActiveFlag = 'Y'\n;",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "dsAzureSQLParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pSecretName": {
+								"value": "@pipeline().parameters.pAzureSQLSecretName",
+								"type": "Expression"
+							},
+							"pSchemaName": {
+								"value": "@pipeline().parameters.pAzureSQLSchemaName",
+								"type": "Expression"
+							},
+							"pTableName": {
+								"value": "@pipeline().parameters.pAzureSQLTableName",
+								"type": "Expression"
+							}
+						}
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "SetInitialStartDate",
+				"type": "SetVariable",
+				"dependsOn": [
+					{
+						"activity": "QueryControlTableInitialStartDate",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "vInitialStartDate",
+					"value": {
+						"value": "@activity('QueryControlTableInitialStartDate').output.value[0]['startdate']",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "ControlTableForEach",
+				"type": "ForEach",
+				"dependsOn": [
+					{
+						"activity": "QueryControlTableForLoad",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@activity('QueryControlTableForLoad').output.value",
+						"type": "Expression"
+					},
+					"isSequential": false,
+					"batchCount": 12,
+					"activities": [
+						{
+							"name": "ExecuteCopyPipeline",
+							"type": "ExecutePipeline",
+							"dependsOn": [],
+							"userProperties": [],
+							"typeProperties": {
+								"pipeline": {
+									"referenceName": "plNiceRestAPIPaginationData",
+									"type": "PipelineReference"
+								},
+								"waitOnCompletion": true,
+								"parameters": {
+									"pApiUrl": {
+										"value": "@item().ApiUrl",
+										"type": "Expression"
+									},
+									"pKeyVaultIdPath": {
+										"value": "@pipeline().parameters.pKeyVaultIdPath",
+										"type": "Expression"
+									},
+									"pKeyVaultSecretPath": {
+										"value": "@pipeline().parameters.pKeyVaultSecretPath",
+										"type": "Expression"
+									},
+									"pApiAuthUrl": {
+										"value": "@pipeline().parameters.pApiAuthUrl",
+										"type": "Expression"
+									},
+									"pParams": {
+										"value": "@json(item().Params)",
+										"type": "Expression"
+									},
+									"pTriggerName": {
+										"value": "@item().TriggerName",
+										"type": "Expression"
+									},
+									"pMapping": {
+										"value": "@json(item().Mapping)",
+										"type": "Expression"
+									},
+									"pZOrderColumnList": {
+										"value": "@item().ZOrderColumnList",
+										"type": "Expression"
+									},
+									"pServiceName": {
+										"value": "@item().ServiceName",
+										"type": "Expression"
+									},
+									"pSourceEntityName": {
+										"value": "@item().SourceEntityName",
+										"type": "Expression"
+									},
+									"pAzureSQLSecretName": {
+										"value": "@pipeline().parameters.pAzureSQLSecretName",
+										"type": "Expression"
+									},
+									"pUnityCatalogName": {
+										"value": "@item().UnityCatalogName",
+										"type": "Expression"
+									},
+									"pStorageAccountName": {
+										"value": "@item().StorageAccountName",
+										"type": "Expression"
+									},
+									"pApiAuthUser": {
+										"value": "@pipeline().parameters.pApiAuthUser",
+										"type": "Expression"
+									},
+									"pDataLakeDirectory": {
+										"value": "@item().DataLakeDirectory",
+										"type": "Expression"
+									}
+								}
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "LoadDeltaLakeGold",
+				"type": "DatabricksNotebook",
+				"dependsOn": [
+					{
+						"activity": "ControlTableForEach",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"notebookPath": "/Nice/Nice Gold Layer Tables",
+					"baseParameters": {
+						"StartDateNew": {
+							"value": "@variables('vInitialStartDate')",
+							"type": "Expression"
+						},
+						"UnityCatalogName": {
+							"value": "@activity('QueryControlTableForLoad').output.value[0].UnityCatalogName",
+							"type": "Expression"
+						},
+						"StorageAccountName": {
+							"value": "@activity('QueryControlTableForLoad').output.value[0].StorageAccountName",
+							"type": "Expression"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "lnkAzureDatabricks",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SetDefaultDate",
+				"type": "SetVariable",
+				"dependsOn": [
+					{
+						"activity": "SetInitialStartDate",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "vDefaultDate",
+					"value": {
+						"value": "@pipeline().parameters.pRunStartDate",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "plLoadNiceAPIData",
+				"type": "ExecutePipeline",
+				"dependsOn": [
+					{
+						"activity": "LoadDeltaLakeGold",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"pipeline": {
+						"referenceName": "plLoadNiceJobsData",
+						"type": "PipelineReference"
+					},
+					"waitOnCompletion": true,
+					"parameters": {
+						"pAzureSQLSecretName": {
+							"value": "@pipeline().parameters.pAzureSQLSecretName",
+							"type": "Expression"
+						},
+						"pAzureSQLSchemaName": {
+							"value": "@pipeline().parameters.pAzureSQLSchemaName",
+							"type": "Expression"
+						},
+						"pAzureSQLTableName": {
+							"value": "@pipeline().parameters.pAzureSQLTableName",
+							"type": "Expression"
+						},
+						"pKeyVaultIdPath": {
+							"value": "@pipeline().parameters.pKeyVaultIdPath",
+							"type": "Expression"
+						},
+						"pKeyVaultSecretPath": {
+							"value": "@pipeline().parameters.pKeyVaultSecretPath",
+							"type": "Expression"
+						},
+						"pApiAuthUrl": {
+							"value": "@pipeline().parameters.pApiAuthUrl",
+							"type": "Expression"
+						},
+						"pApiAuthUser": {
+							"value": "@pipeline().parameters.pApiAuthUser",
+							"type": "Expression"
+						},
+						"pKeyVaultAuthToken": {
+							"value": "@pipeline().parameters.pNiceAuthToken",
+							"type": "Expression"
+						}
+					}
+				}
+			}
+		],
+		"parameters": {
+			"pTriggerName": {
+				"type": "string",
+				"defaultValue": "trgNiceApi"
+			},
+			"pAzureSQLSecretName": {
+				"type": "string",
+				"defaultValue": "DLSqlCntrlConn"
+			},
+			"pAzureSQLSchemaName": {
+				"type": "string",
+				"defaultValue": "etl"
+			},
+			"pAzureSQLTableName": {
+				"type": "string",
+				"defaultValue": "ControlTableRestAPIToAdls"
+			},
+			"pRunStartDate": {
+				"type": "string",
+				"defaultValue": "NA"
+			},
+			"pRunMonthly": {
+				"type": "string",
+				"defaultValue": "N"
+			},
+			"pKeyVaultIdPath": {
+				"type": "string",
+				"defaultValue": "https://kvl-keyvlt-usc-dev.vault.azure.net/secrets/NiceAccessKey/7a29fa7fdb3b419f90f6496cd2b7546e?api-version=7.0"
+			},
+			"pKeyVaultSecretPath": {
+				"type": "string",
+				"defaultValue": "https://kvl-keyvlt-usc-dev.vault.azure.net/secrets/NiceAccessKeySecret/548c9b72f5054d639a11221cef797159?api-version=7.0"
+			},
+			"pApiAuthUrl": {
+				"type": "string",
+				"defaultValue": "https://cxone.niceincontact.com/auth/token"
+			},
+			"pApiAuthUser": {
+				"type": "string",
+				"defaultValue": "https://kvl-keyvlt-usc-dev.vault.azure.net/secrets/NiceClientId/a8d7547830964a6abf48bb3d9975f905?api-version=7.0"
+			},
+			"pNiceAuthToken": {
+				"type": "string",
+				"defaultValue": "https://kvl-keyvlt-usc-dev.vault.azure.net/secrets/NiceAuthToken/7e0ab295c9f142adb409473d0a3c7ebe?api-version=7.0"
+			}
+		},
+		"variables": {
+			"vAccessToken": {
+				"type": "String",
+				"defaultValue": "123"
+			},
+			"vPath": {
+				"type": "String",
+				"defaultValue": "/incontactapi/services/v25.0/agents/interaction-history?startDate=2022-10-17&endDate=2022-10-18"
+			},
+			"vParams": {
+				"type": "Array"
+			},
+			"vStartDate": {
+				"type": "String"
+			},
+			"vCurrentTime": {
+				"type": "String"
+			},
+			"vInitialStartDate": {
+				"type": "String"
+			},
+			"vDefaultDate": {
+				"type": "String"
+			}
+		},
+		"folder": {
+			"name": "Nice"
+		},
+		"annotations": []
+	}
+}

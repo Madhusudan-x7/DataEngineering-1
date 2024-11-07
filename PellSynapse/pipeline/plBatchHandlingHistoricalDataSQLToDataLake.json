@@ -1,0 +1,679 @@
+{
+	"name": "plBatchHandlingHistoricalDataSQLToDataLake",
+	"properties": {
+		"activities": [
+			{
+				"name": "GetBatchesToRun",
+				"description": "Get all batches from Audit table",
+				"type": "Lookup",
+				"dependsOn": [
+					{
+						"activity": "CreateBatchDetails",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "AzureSqlSource",
+						"sqlReaderQuery": {
+							"value": "select * from [etl].[ControlTableBatchSourceToAdlsLoad] \nwhere IsActiveFlag = 'Y' and Status != 'Completed' and\nTriggerName= '@{pipeline().parameters.pPipelineTriggerName}' order by StartDate\n",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "dsAzureSQLParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pSecretName": {
+								"value": "@pipeline().parameters.pAzureSQLSecretName",
+								"type": "Expression"
+							},
+							"pSchemaName": {
+								"value": "@pipeline().parameters.pAzureSQLSchemaName",
+								"type": "Expression"
+							},
+							"pTableName": {
+								"value": "@pipeline().parameters.pAzureSQLTableName",
+								"type": "Expression"
+							}
+						}
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "IterateEachBatches",
+				"description": "Iterate and process each batch",
+				"type": "ForEach",
+				"dependsOn": [
+					{
+						"activity": "GetBatchesToRun",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@activity('GetBatchesToRun').output.value",
+						"type": "Expression"
+					},
+					"isSequential": true,
+					"activities": [
+						{
+							"name": "IfBatchRunStatusTrue",
+							"type": "IfCondition",
+							"dependsOn": [],
+							"userProperties": [],
+							"typeProperties": {
+								"expression": {
+									"value": "@if(equals(variables('varBatchProgressStatus'),'True'),'True','False')",
+									"type": "Expression"
+								},
+								"ifTrueActivities": [
+									{
+										"name": "ExecuteExtractLoadHistoricalDataYearlySQLToDataLake",
+										"description": "",
+										"type": "ExecutePipeline",
+										"dependsOn": [
+											{
+												"activity": "UpdateBatchTableStatus",
+												"dependencyConditions": [
+													"Succeeded"
+												]
+											}
+										],
+										"userProperties": [],
+										"typeProperties": {
+											"pipeline": {
+												"referenceName": "plExtractLoadHistoricalDataYearlySQLToDataLake",
+												"type": "PipelineReference"
+											},
+											"waitOnCompletion": true,
+											"parameters": {
+												"pExtractDataFrom": {
+													"value": "@item().StartDate",
+													"type": "Expression"
+												},
+												"pAzureSQLServerName": {
+													"value": "@pipeline().parameters.pAzureSQLServerName",
+													"type": "Expression"
+												},
+												"pAzureSQLDatabaseName": {
+													"value": "@pipeline().parameters.pAzureSQLDatabaseName",
+													"type": "Expression"
+												},
+												"pAzureSQLUserName": {
+													"value": "@pipeline().parameters.pAzureSQLUserName",
+													"type": "Expression"
+												},
+												"pAzureSQLSecretName": {
+													"value": "@pipeline().parameters.pAzureSQLSecretName",
+													"type": "Expression"
+												},
+												"pAzureSQLSchemaName": {
+													"value": "@pipeline().parameters.pAzureSQLSchemaName",
+													"type": "Expression"
+												},
+												"pAzureSQLTableName": {
+													"value": "@pipeline().parameters.pAzureSQLTableName",
+													"type": "Expression"
+												},
+												"pSourceServerName": {
+													"value": "@pipeline().parameters.pSourceServerName",
+													"type": "Expression"
+												},
+												"pSourceDatabaseName": {
+													"value": "@pipeline().parameters.pSourceDatabaseName",
+													"type": "Expression"
+												},
+												"pSourceSchemaName": {
+													"value": "@pipeline().parameters.pSourceSchemaName",
+													"type": "Expression"
+												},
+												"pSourceTableName": {
+													"value": "@pipeline().parameters.pSourceTableName",
+													"type": "Expression"
+												},
+												"pPipelineTriggerName": {
+													"value": "@pipeline().parameters.pPipelineTriggerName",
+													"type": "Expression"
+												},
+												"pExtractDataToDate": {
+													"value": "@item().EndDate",
+													"type": "Expression"
+												},
+												"pExtractDataDurationInDays": {
+													"value": "@pipeline().parameters.pExtractDataDurationInDays",
+													"type": "Expression"
+												}
+											}
+										}
+									},
+									{
+										"name": "UpdateExtractDataLoadAuditTableSuccess",
+										"type": "Script",
+										"dependsOn": [
+											{
+												"activity": "ExecuteExtractLoadHistoricalDataYearlySQLToDataLake",
+												"dependencyConditions": [
+													"Succeeded"
+												]
+											}
+										],
+										"policy": {
+											"timeout": "0.12:00:00",
+											"retry": 0,
+											"retryIntervalInSeconds": 30,
+											"secureOutput": false,
+											"secureInput": false
+										},
+										"userProperties": [],
+										"linkedServiceName": {
+											"referenceName": "lnkAzureSqlParameterized",
+											"type": "LinkedServiceReference",
+											"parameters": {
+												"SecretName": {
+													"value": "@pipeline().parameters.pAzureSQLSecretName",
+													"type": "Expression"
+												}
+											}
+										},
+										"typeProperties": {
+											"scripts": [
+												{
+													"type": "Query",
+													"text": {
+														"value": "@concat('update etl.ControlTableBatchSourceToAdlsLoad set Status = ''Completed'' where IsActiveFlag = ''Y'' and EndDate =''',item().EndDate,''' and TriggerName =''',item().TriggerName,'''')",
+														"type": "Expression"
+													}
+												}
+											],
+											"scriptBlockExecutionTimeout": "02:00:00"
+										}
+									},
+									{
+										"name": "UpdateExtractDataLoadAuditTableFailure",
+										"type": "Script",
+										"dependsOn": [
+											{
+												"activity": "ExecuteExtractLoadHistoricalDataYearlySQLToDataLake",
+												"dependencyConditions": [
+													"Failed"
+												]
+											}
+										],
+										"policy": {
+											"timeout": "0.12:00:00",
+											"retry": 0,
+											"retryIntervalInSeconds": 30,
+											"secureOutput": false,
+											"secureInput": false
+										},
+										"userProperties": [],
+										"linkedServiceName": {
+											"referenceName": "lnkAzureSqlParameterized",
+											"type": "LinkedServiceReference",
+											"parameters": {
+												"SecretName": {
+													"value": "@pipeline().parameters.pAzureSQLSecretName",
+													"type": "Expression"
+												}
+											}
+										},
+										"typeProperties": {
+											"scripts": [
+												{
+													"type": "Query",
+													"text": {
+														"value": "@concat('update etl.ControlTableBatchSourceToAdlsLoad set Status = ''Failed'' where IsActiveFlag = ''Y'' and EndDate =''',item().EndDate,''' and TriggerName =''',item().TriggerName,'''')",
+														"type": "Expression"
+													}
+												}
+											],
+											"scriptBlockExecutionTimeout": "02:00:00"
+										}
+									},
+									{
+										"name": "UpdateBatchTableStatus",
+										"description": "Update Batch Table Status to 'In Progress'\non pipeline initiation.",
+										"type": "Script",
+										"dependsOn": [],
+										"policy": {
+											"timeout": "0.12:00:00",
+											"retry": 0,
+											"retryIntervalInSeconds": 30,
+											"secureOutput": false,
+											"secureInput": false
+										},
+										"userProperties": [],
+										"linkedServiceName": {
+											"referenceName": "lnkAzureSqlParameterized",
+											"type": "LinkedServiceReference",
+											"parameters": {
+												"SecretName": {
+													"value": "@pipeline().parameters.pAzureSQLSecretName",
+													"type": "Expression"
+												}
+											}
+										},
+										"typeProperties": {
+											"scripts": [
+												{
+													"type": "Query",
+													"text": {
+														"value": "@concat('update etl.ControlTableBatchSourceToAdlsLoad set Status = ''In Progress'' where IsActiveFlag = ''Y'' and EndDate =''',item().EndDate,''' and TriggerName =''',item().TriggerName,'''')",
+														"type": "Expression"
+													}
+												}
+											],
+											"scriptBlockExecutionTimeout": "02:00:00"
+										}
+									}
+								]
+							}
+						},
+						{
+							"name": "UpdateBatchProgressStatus",
+							"description": "This takes care of restricting the failed batch run.",
+							"type": "SetVariable",
+							"dependsOn": [
+								{
+									"activity": "IfBatchRunStatusTrue",
+									"dependencyConditions": [
+										"Failed"
+									]
+								}
+							],
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "varBatchProgressStatus",
+								"value": "False"
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "GetBatchDetails",
+				"description": "It gets all batch details from Batch Audit table to decide if the batch already exists or needs to be created. It is required for tracking and monitoring the progress of batch data load.",
+				"type": "Lookup",
+				"dependsOn": [
+					{
+						"activity": "SetExtractDataEndDate",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "AzureSqlSource",
+						"sqlReaderQuery": {
+							"value": "select * from [etl].[ControlTableBatchSourceToAdlsLoad] \nwhere IsActiveFlag = 'Y' and\nTriggerName= '@{pipeline().parameters.pPipelineTriggerName}'\n",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "dsAzureSQLParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pSecretName": {
+								"value": "@pipeline().parameters.pAzureSQLSecretName",
+								"type": "Expression"
+							},
+							"pSchemaName": {
+								"value": "@pipeline().parameters.pAzureSQLSchemaName",
+								"type": "Expression"
+							},
+							"pTableName": {
+								"value": "@pipeline().parameters.pAzureSQLTableName",
+								"type": "Expression"
+							}
+						}
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "SetExtractDataStartDate",
+				"type": "SetVariable",
+				"dependsOn": [],
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "varExtractDataStartDate",
+					"value": {
+						"value": "@formatDateTime(pipeline().parameters.pExtractDataFrom,'yyyy-MM-dd HH:mm:ss')",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "SetExtractDataEndDate",
+				"type": "SetVariable",
+				"dependsOn": [
+					{
+						"activity": "SetExtractDataStartDate",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "varExtractDataEndDate",
+					"value": {
+						"value": "@formatDateTime(pipeline().parameters.pExtractDataToDate,'yyyy-MM-dd HH:mm:ss')\n",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "CreateBatchDetails",
+				"description": "Create the batch details for further processing and tracking",
+				"type": "Until",
+				"dependsOn": [
+					{
+						"activity": "CheckIfBatchExists",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@greater(variables('varExtractDataStartDate'),variables('varExtractDataEndDate'))",
+						"type": "Expression"
+					},
+					"activities": [
+						{
+							"name": "InsertBatchDetails",
+							"type": "IfCondition",
+							"dependsOn": [],
+							"userProperties": [],
+							"typeProperties": {
+								"expression": {
+									"value": "@if(greater(variables('varExtractDataEndDate'),variables('varExtractDataStartDate')),'True','False')",
+									"type": "Expression"
+								},
+								"ifTrueActivities": [
+									{
+										"name": "SetNextExtractDataEndDateSQL",
+										"description": "Set the End Date for next data load.",
+										"type": "SetVariable",
+										"dependsOn": [
+											{
+												"activity": "SetNextExtractDataStartDateSQL",
+												"dependencyConditions": [
+													"Succeeded"
+												]
+											}
+										],
+										"userProperties": [],
+										"typeProperties": {
+											"variableName": "varCurrentEndDate",
+											"value": {
+												"value": "@if(greater(int(variables('varDifference')),pipeline().parameters.pExtractDataDurationInDays),formatDateTime(addToTime(variables('varExtractDataStartDate'),pipeline().parameters.pExtractDataDurationInDays,'Day'),\n'yyyy-MM-dd HH:mm:ss'),formatDateTime(variables('varExtractDataEndDate'),'yyyy-MM-dd HH:mm:ss'))",
+												"type": "Expression"
+											}
+										}
+									},
+									{
+										"name": "SetNextExtractDataStartDateSQL",
+										"description": "Set the Start Date for next data load.",
+										"type": "SetVariable",
+										"dependsOn": [
+											{
+												"activity": "GetDaysDifference",
+												"dependencyConditions": [
+													"Succeeded"
+												]
+											}
+										],
+										"userProperties": [],
+										"typeProperties": {
+											"variableName": "varCurrentStartDate",
+											"value": {
+												"value": "@formatDateTime(variables('varExtractDataStartDate'),'yyyy-MM-dd HH:mm:ss')",
+												"type": "Expression"
+											}
+										}
+									},
+									{
+										"name": "CreateBatches",
+										"type": "Script",
+										"dependsOn": [
+											{
+												"activity": "SetNextExtractDataEndDateSQL",
+												"dependencyConditions": [
+													"Succeeded"
+												]
+											}
+										],
+										"policy": {
+											"timeout": "0.12:00:00",
+											"retry": 0,
+											"retryIntervalInSeconds": 30,
+											"secureOutput": false,
+											"secureInput": false
+										},
+										"userProperties": [],
+										"linkedServiceName": {
+											"referenceName": "lnkAzureSqlParameterized",
+											"type": "LinkedServiceReference",
+											"parameters": {
+												"SecretName": {
+													"value": "@pipeline().parameters.pAzureSQLSecretName",
+													"type": "Expression"
+												}
+											}
+										},
+										"typeProperties": {
+											"scripts": [
+												{
+													"type": "Query",
+													"text": {
+														"value": "@concat('insert into etl.ControlTableBatchSourceToAdlsLoad values(''',pipeline().parameters.pPipelineTriggerName,''',''',pipeline().parameters.pSourceTableName,''',''',\nformatDateTime(variables('varCurrentEndDate'), 'yyyy'),''',''',variables('varCurrentStartDate'),''',''',variables('varCurrentEndDate'),''',''Y'',''Not Started'')')",
+														"type": "Expression"
+													}
+												}
+											],
+											"scriptBlockExecutionTimeout": "02:00:00"
+										}
+									},
+									{
+										"name": "GetDaysDifference",
+										"description": "Get the days difference between Start Date and End Date",
+										"type": "SetVariable",
+										"dependsOn": [],
+										"userProperties": [],
+										"typeProperties": {
+											"variableName": "varDifference",
+											"value": {
+												"value": "@string(div(sub(ticks(variables('varExtractDataEndDate')),ticks(variables('varExtractDataStartDate'))),864000000000))",
+												"type": "Expression"
+											}
+										}
+									},
+									{
+										"name": "UpdateStartDate",
+										"type": "SetVariable",
+										"dependsOn": [
+											{
+												"activity": "CreateBatches",
+												"dependencyConditions": [
+													"Succeeded"
+												]
+											}
+										],
+										"userProperties": [],
+										"typeProperties": {
+											"variableName": "varExtractDataStartDate",
+											"value": {
+												"value": "@addToTime(variables('varCurrentStartDate'),pipeline().parameters.pExtractDataDurationInDays,'Day')",
+												"type": "Expression"
+											}
+										}
+									}
+								]
+							}
+						}
+					],
+					"timeout": "0.12:00:00"
+				}
+			},
+			{
+				"name": "CheckIfBatchExists",
+				"type": "IfCondition",
+				"dependsOn": [
+					{
+						"activity": "GetBatchDetails",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@greater(activity('GetBatchDetails').output.count,0)",
+						"type": "Expression"
+					},
+					"ifTrueActivities": [
+						{
+							"name": "UpdateExtractDataStartDate",
+							"type": "SetVariable",
+							"dependsOn": [],
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "varExtractDataStartDate",
+								"value": {
+									"value": "@addDays(formatDateTime(pipeline().parameters.pExtractDataToDate,'yyyy-MM-dd HH:mm:ss'),1)",
+									"type": "Expression"
+								}
+							}
+						}
+					]
+				}
+			}
+		],
+		"parameters": {
+			"pExtractDataFrom": {
+				"type": "string",
+				"defaultValue": "2021-12-01 00:00:00"
+			},
+			"pAzureSQLServerName": {
+				"type": "string",
+				"defaultValue": "sqlsvr-datalake-usc-dev.database.windows.net"
+			},
+			"pAzureSQLDatabaseName": {
+				"type": "string",
+				"defaultValue": "sqldb-dl-control-usc-dev"
+			},
+			"pAzureSQLUserName": {
+				"type": "string",
+				"defaultValue": "DataLake"
+			},
+			"pAzureSQLSecretName": {
+				"type": "string",
+				"defaultValue": "DLSqlCntrlConn"
+			},
+			"pAzureSQLSchemaName": {
+				"type": "string",
+				"defaultValue": "etl"
+			},
+			"pAzureSQLTableName": {
+				"type": "string",
+				"defaultValue": "ControlTableSourceToAdlsLoad"
+			},
+			"pSourceServerName": {
+				"type": "string",
+				"defaultValue": "devspqmd20"
+			},
+			"pSourceDatabaseName": {
+				"type": "string",
+				"defaultValue": "PellaCenterPoint"
+			},
+			"pSourceSchemaName": {
+				"type": "string",
+				"defaultValue": "dbo"
+			},
+			"pSourceTableName": {
+				"type": "string",
+				"defaultValue": "LineItemMaster"
+			},
+			"pPipelineTriggerName": {
+				"type": "string",
+				"defaultValue": "trgExtractLoadSQLtoDataLake_PQM_LineItemMaster"
+			},
+			"pExtractDataToDate": {
+				"type": "string",
+				"defaultValue": "2023-03-31 00:00:00"
+			},
+			"pExtractDataDurationInDays": {
+				"type": "int",
+				"defaultValue": 30
+			}
+		},
+		"variables": {
+			"varExtractDataStartDate": {
+				"type": "String"
+			},
+			"varExtractDataEndDate": {
+				"type": "String"
+			},
+			"varYYYYMMDD": {
+				"type": "String"
+			},
+			"varDifference": {
+				"type": "String"
+			},
+			"varEndDate": {
+				"type": "String"
+			},
+			"varCurrentStartDate": {
+				"type": "String"
+			},
+			"varCurrentEndDate": {
+				"type": "String"
+			},
+			"varBatchProgressStatus": {
+				"type": "String",
+				"defaultValue": "True"
+			},
+			"varBatchIntervalDays": {
+				"type": "String"
+			}
+		},
+		"folder": {
+			"name": "DataLake"
+		},
+		"annotations": [],
+		"lastPublishTime": "2021-10-26T21:39:16Z"
+	},
+	"type": "Microsoft.Synapse/workspaces/pipelines"
+}

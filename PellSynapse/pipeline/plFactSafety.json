@@ -1,0 +1,136 @@
+{
+	"name": "plFactSafety",
+	"properties": {
+		"activities": [
+			{
+				"name": "populate_fact_behavior_observations",
+				"type": "DatabricksNotebook",
+				"dependsOn": [
+					{
+						"activity": "populate_fact_safety_occurrence",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"notebookPath": "/SilverToGold/Dev/In-Development/populate_fact_behavior_observations",
+					"baseParameters": {
+						"SourceCatalogName_1": "dev_silver",
+						"SourceSchemaName_1": "pel_thrive",
+						"SourceTableName_1": "dbo_projectsf",
+						"SourceCatalogName_2": "dev_silver",
+						"SourceSchemaName_2": "pel_thrive",
+						"SourceTableName_2": "dbo_ss_costcenter_mapping",
+						"SourceCatalogName_3": "dev_gold",
+						"SourceSchemaName_3": "edm",
+						"SourceTableName_3": "ref_cost_center",
+						"SourceCatalogName_4": "dev_gold",
+						"SourceSchemaName_4": "edm",
+						"SourceTableName_4": "dim_cost_center",
+						"TargetCatalogName": "dev_gold",
+						"TargetSchemaName": "edm",
+						"TargetTableName": "fact_behavior_observations"
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "lnkAzureDatabricks",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "populate_fact_safety_occurrence",
+				"type": "DatabricksNotebook",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"notebookPath": "/SilverToGold/Dev/In-Development/populate_fact_safety_occurrence",
+					"baseParameters": {
+						"SourceCatalogName_1": "dev_silver",
+						"SourceSchemaName_1": "pel_thrive",
+						"SourceTableName_1": "dbo_safetyocc",
+						"SourceCatalogName_2": "dev_silver",
+						"SourceSchemaName_2": "pel_thrive",
+						"SourceTableName_2": "dbo_ss_costcenter_mapping",
+						"SourceCatalogName_3": "dev_gold",
+						"SourceSchemaName_3": "edm",
+						"SourceTableName_3": "ref_cost_center",
+						"SourceCatalogName_4": "dev_gold",
+						"SourceSchemaName_4": "edm",
+						"SourceTableName_4": "dim_cost_center",
+						"TargetCatalogName": "dev_gold",
+						"TargetSchemaName": "edm",
+						"TargetTableName": "fact_safety_occurrence"
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "lnkAzureDatabricks",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "populate_fact_labor_hours",
+				"type": "DatabricksNotebook",
+				"dependsOn": [
+					{
+						"activity": "populate_fact_behavior_observations",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"notebookPath": "/SilverToGold/Dev/In-Development/populate_fact_labor_hours",
+					"baseParameters": {
+						"SourceCatalogName_1": "dev_gold",
+						"SourceSchemaName_1": "manuel_files",
+						"SourceTableName_1": "safety_labor_hours_11222023",
+						"SourceCatalogName_2": "dev_gold",
+						"SourceSchemaName_2": "manuel_files",
+						"SourceTableName_2": "labor_exempt_hrs_11222023",
+						"SourceCatalogName_3": "dev_gold",
+						"SourceSchemaName_3": "edm",
+						"SourceTableName_3": "dim_location",
+						"SourceCatalogName_4": "dev_gold",
+						"SourceSchemaName_4": "edm",
+						"SourceTableName_4": "dim_cost_center",
+						"TargetCatalogName": "dev_gold",
+						"TargetSchemaName": "edm",
+						"TargetTableName": "fact_labor_hours"
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "lnkAzureDatabricks",
+					"type": "LinkedServiceReference"
+				}
+			}
+		],
+		"folder": {
+			"name": "SilverGold/Safety/factSafety"
+		},
+		"annotations": []
+	}
+}

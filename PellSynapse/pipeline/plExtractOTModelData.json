@@ -1,0 +1,194 @@
+{
+	"name": "plExtractOTModelData",
+	"properties": {
+		"activities": [
+			{
+				"name": "Copy Usage Data",
+				"type": "Copy",
+				"dependsOn": [
+					{
+						"activity": "Set path variables",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "OracleSource",
+						"oracleReaderQuery": "select\n--For PowerBI Change OrgID for each organization and append all data together in dataflow\nmsi.organization_id\n,msi.inventory_item_id\n,msi.segment1 item\n,ood.organization_code org\n,trunc(mmt.transaction_date) usage_date\n,msi.primary_uom_code primary_uom\n,sum(mmt.primary_quantity*-1) usage\n,csic.item_cost\n,sum(mmt.primary_quantity*-1) * csic.item_cost usage_$\nfrom apps.mtl_material_transactions mmt\n     ,apps.mtl_system_items_b msi\n     ,apps.gl_periods gp\n     ,apps.org_organization_definitions ood\n     ,apps.mtl_item_categories mic\n     ,apps.cst_item_costs csic\nwhere mmt.inventory_item_id = msi.inventory_item_id\n   and mmt.organization_id = msi.organization_id\n   and msi.organization_id = ood.organization_id\n and msi.segment1 not like '%*%'\n and ood.disable_date is null\n---and msi.organization_id in (118)\n   and msi.inventory_item_id = mic.inventory_item_id(+)\n   and msi.organization_id = mic.organization_id(+)\n   and mic.category_set_id (+) = 1\n   and gp.period_set_name = 'PELLA FISCAL 13'\n   and gp.period_type = '1'\n   and gp.period_num != 13\n   and (mmt.transaction_type_id) in\n (select transaction_type_id\n from apps.mtl_transaction_types\nwhere upper(attribute1) like '%USAGE%')\nand (mmt.transaction_type_id not in (54, 140, 3) or ( transaction_type_id in (54, 140, 3) and mmt.primary_quantity < 0 ) )\nand trunc(mmt.transaction_date) between trunc(gp.start_date) and trunc(gp.end_date) --excluded this row 11/19\nand to_char(gp.end_date,'YYYYMMDD') >= to_char(SYSDATE,'YYYYMMDD')-30000 --excluded this row 11/19\nand msi.planner_code LIKE '%BUYER%'\nand msi.inventory_item_id = csic.inventory_item_id\nand msi.organization_id = csic.organization_id\nand csic.cost_type_id = 1\nand csic.organization_id != 9\ngroup by\nmsi.organization_id\n,msi.inventory_item_id\n,trunc(mmt.transaction_date)\n,ood.organization_code\n,msi.segment1\n,msi.primary_uom_code\n,csic.item_cost\n",
+						"partitionOption": "None",
+						"queryTimeout": "02:00:00"
+					},
+					"sink": {
+						"type": "ParquetSink",
+						"storeSettings": {
+							"type": "AzureBlobFSWriteSettings"
+						},
+						"formatSettings": {
+							"type": "ParquetWriteSettings"
+						}
+					},
+					"enableStaging": false,
+					"translator": {
+						"type": "TabularTranslator",
+						"typeConversion": true,
+						"typeConversionSettings": {
+							"allowDataTruncation": true,
+							"treatBooleanAsNumber": false
+						}
+					}
+				},
+				"inputs": [
+					{
+						"referenceName": "dsOracleParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pSecretName": {
+								"value": "@pipeline().parameters.pEBSSecret",
+								"type": "Expression"
+							},
+							"pSchemaName": "NULL",
+							"pTableName": "NULL"
+						}
+					}
+				],
+				"outputs": [
+					{
+						"referenceName": "dsADLSParquetParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pDataLakeContainer": {
+								"value": "@pipeline().parameters.pADLSContainer",
+								"type": "Expression"
+							},
+							"pDataLakeDirectory": {
+								"value": "@concat(pipeline().parameters.pADLSDirectory,'/item_usage/',variables('vPath'))",
+								"type": "Expression"
+							},
+							"pDataLakeFile": "item_usage.parquet"
+						}
+					}
+				]
+			},
+			{
+				"name": "Copy PO Receipts",
+				"type": "Copy",
+				"dependsOn": [
+					{
+						"activity": "Set path variables",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "OracleSource",
+						"oracleReaderQuery": "select\naps.vendor_name supplier\n,apsa.vendor_site_code site\n,mtl.organization_code org\n,pha.segment1 po_num\n,pla.line_num line_num\n,pra.release_num rel_num\n,rcv.transaction_type\n,coalesce(trunc(plla.promised_date),trunc(plla.need_by_date)) po_due_date\n,trunc(rcv.transaction_date) transaction_date\n,msib.segment1 item\n,msib.description\n,rcv.primary_unit_of_measure primary_uom\n,rcv.unit_of_measure uom\n,case when trunc(rcv.transaction_date) <= coalesce(trunc(plla.promised_date),trunc(plla.need_by_date))\nthen 'ONTIME' else 'LATE' end LATE_FLAG\n,sum(rcv.primary_quantity) primary_uom_quantity\n,sum(rcv.quantity) quantity\nfrom\nap.ap_suppliers aps\n,ap.ap_supplier_sites_all apsa\n,inv.mtl_system_items_b msib\n,inv.mtl_parameters mtl\n,po.rcv_transactions rcv\n,po.po_line_locations_all plla\n,po.po_headers_all pha\n,po.po_releases_all pra\n,po.po_lines_all pla\nwhere rcv.po_header_id = pha.po_header_id\nand rcv.po_release_id = pra.po_release_id(+)\nand rcv.po_line_id = pla.po_line_id\nand rcv.vendor_id = aps.vendor_id\nand pha.vendor_id = aps.vendor_id\nand rcv.vendor_site_id = apsa.vendor_site_id\nand pha.vendor_site_id = apsa.vendor_site_id\nand pha.po_header_Id=pla.po_header_id\nand pha.po_header_Id=pra.po_header_id\n--and plla.po_header_Id=pha.po_header_Id\n--and plla.po_line_id=pla.po_line_Id\nand rcv.organization_id = mtl.organization_id\nand rcv.po_line_location_id = plla.line_location_id\nand pla.item_id = msib.inventory_item_id\nand msib.organization_id = 9\n--and rcv.transaction_type = 'RECEIVE'\nand rcv.transaction_type  in ('RECEIVE','CORRECT')\nand rcv.transaction_date >= to_date('01/01/2020','mm/dd/yyyy')\n--and (rcv.transaction_date) < to_date('01/01/2023','mm/dd/yyyy')\n--and rcv.transaction_id >= 132698977 --captured from this statement: (select min(a.transaction_id) from po.rcv_transactions a where trunc(a.transaction_date) = to_date('01/01/2020','mm/dd/yyyy'))\n--and rcv.transaction_id < 146689358 --captured from this statement: (select min(a.transaction_id) from po.rcv_transactions a where trunc(a.transaction_date) = to_date('01/01/2021','mm/dd/yyyy'))\n--and aps.vendor_name like 'PRIES%'\n--and rcv.vendor_id != 3729\n--and rcv.organization_id = 378\n--and msib.segment1 like 'V981%'\ngroup by\naps.vendor_name\n,apsa.vendor_site_code\n,mtl.organization_code\n,pha.segment1\n,pla.line_num\n,pra.release_num\n,rcv.transaction_type\n,trunc(rcv.transaction_date)\n,msib.segment1\n,msib.description\n,rcv.unit_of_measure\n,rcv.primary_unit_of_measure\n,coalesce(trunc(plla.promised_date),trunc(plla.need_by_date))\n",
+						"partitionOption": "None",
+						"queryTimeout": "02:00:00"
+					},
+					"sink": {
+						"type": "ParquetSink",
+						"storeSettings": {
+							"type": "AzureBlobFSWriteSettings"
+						},
+						"formatSettings": {
+							"type": "ParquetWriteSettings"
+						}
+					},
+					"enableStaging": false,
+					"translator": {
+						"type": "TabularTranslator",
+						"typeConversion": true,
+						"typeConversionSettings": {
+							"allowDataTruncation": true,
+							"treatBooleanAsNumber": false
+						}
+					}
+				},
+				"inputs": [
+					{
+						"referenceName": "dsOracleParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pSecretName": {
+								"value": "@pipeline().parameters.pEBSSecret",
+								"type": "Expression"
+							},
+							"pSchemaName": "NULL",
+							"pTableName": "NULL"
+						}
+					}
+				],
+				"outputs": [
+					{
+						"referenceName": "dsADLSParquetParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pDataLakeContainer": {
+								"value": "@pipeline().parameters.pADLSContainer",
+								"type": "Expression"
+							},
+							"pDataLakeDirectory": {
+								"value": "@concat(pipeline().parameters.pADLSDirectory,'/po_receipts/',variables('vPath'))",
+								"type": "Expression"
+							},
+							"pDataLakeFile": "po_receipts.parquet"
+						}
+					}
+				]
+			},
+			{
+				"name": "Set path variables",
+				"type": "SetVariable",
+				"dependsOn": [],
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "vPath",
+					"value": "@concat(formatDateTime(convertFromUtc(utcnow(),'Central Standard Time'),'yyyy'),'/',formatDateTime(convertFromUtc(utcnow(),'Central Standard Time'),'MM'),'/',formatDateTime(convertFromUtc(utcnow(),'Central Standard Time'),'dd'),'/')"
+				}
+			}
+		],
+		"parameters": {
+			"pEBSSecret": {
+				"type": "string",
+				"defaultValue": "OracleErpConn"
+			},
+			"pADLSContainer": {
+				"type": "string",
+				"defaultValue": "master"
+			},
+			"pADLSDirectory": {
+				"type": "string",
+				"defaultValue": "data_science/order_transparency/source_data"
+			}
+		},
+		"variables": {
+			"vPath": {
+				"type": "String"
+			}
+		},
+		"folder": {
+			"name": "Data Science"
+		},
+		"annotations": []
+	}
+}

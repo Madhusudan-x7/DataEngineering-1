@@ -1,0 +1,709 @@
+{
+	"name": "plEloquaActivities",
+	"properties": {
+		"activities": [
+			{
+				"name": "SetStartDate",
+				"type": "SetVariable",
+				"dependsOn": [
+					{
+						"activity": "SetActivitiesPath",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "vStartDate",
+					"value": {
+						"value": "@formatDateTime(variables('vActivitiesParams')[0].PipelineLastRunDateTime,'yyyy-MM-dd HH:mm:ss')",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "SetEndDate",
+				"type": "SetVariable",
+				"dependsOn": [
+					{
+						"activity": "SetStartDate",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "vEndDate",
+					"value": {
+						"value": "@formatDateTime(utcnow(),'yyyy-MM-dd HH:mm:ss')",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "UntilAllBatchesDone",
+				"type": "Until",
+				"dependsOn": [
+					{
+						"activity": "SetUnityCatalogNamePath",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@greater(int(div(sub(ticks(variables('vStartDate')),ticks(variables('vEndDate'))),864000000000))\n,0)",
+						"type": "Expression"
+					},
+					"activities": [
+						{
+							"name": "SetUpdateStartDate",
+							"type": "SetVariable",
+							"dependsOn": [
+								{
+									"activity": "SetCurrentEndDate",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "vStartDate",
+								"value": {
+									"value": "@addToTime(variables('vCurrentStartDate'),pipeline().parameters.pBatchIntervalInDays,'Day')",
+									"type": "Expression"
+								}
+							}
+						},
+						{
+							"name": "SetCurrentStartDate",
+							"type": "SetVariable",
+							"dependsOn": [
+								{
+									"activity": "GetInterval",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "vCurrentStartDate",
+								"value": {
+									"value": "@formatDateTime(variables('vStartDate'),'yyyy-MM-dd HH:mm:ss')",
+									"type": "Expression"
+								}
+							}
+						},
+						{
+							"name": "SetCurrentEndDate",
+							"type": "SetVariable",
+							"dependsOn": [
+								{
+									"activity": "SetCurrentStartDate",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "vCurrentEndDate",
+								"value": {
+									"value": "@if(greater(int(variables('vDifference')),pipeline().parameters.pBatchIntervalInDays),formatDateTime(addToTime(variables('vStartDate'),pipeline().parameters.pBatchIntervalInDays,'Day'),'yyyy-MM-dd HH:mm:ss'),formatDateTime(variables('vEndDate'),'yyyy-MM-dd HH:mm:ss'))",
+									"type": "Expression"
+								}
+							}
+						},
+						{
+							"name": "GetInterval",
+							"type": "SetVariable",
+							"dependsOn": [],
+							"policy": {
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "vDifference",
+								"value": {
+									"value": "@string(div(sub(ticks(variables('vEndDate')),ticks(variables('vStartDate'))),864000000000))",
+									"type": "Expression"
+								}
+							}
+						},
+						{
+							"name": "Eloqua Activities Extract Sync",
+							"type": "DatabricksNotebook",
+							"dependsOn": [
+								{
+									"activity": "SetCurrentDirectory",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"notebookPath": "/Eloqua/Eloqua Activities Extract Sync",
+								"baseParameters": {
+									"ActivitiesPath": {
+										"value": "@variables('vActivitiesPath')",
+										"type": "Expression"
+									},
+									"EndDate": {
+										"value": "@formatDateTime(variables('vCurrentEndDate'),'yyyy-MM-dd HH:mm:ss')",
+										"type": "Expression"
+									},
+									"StartDate": {
+										"value": "@formatDateTime(variables('vCurrentStartDate'),'yyyy-MM-dd HH:mm:ss')",
+										"type": "Expression"
+									},
+									"SyncErrorPath": {
+										"value": "@concat(variables('vActivitiesPath'),'errors')",
+										"type": "Expression"
+									},
+									"SyncIDPath": {
+										"value": "@concat(variables('vActivitiesPath'),'sync')",
+										"type": "Expression"
+									},
+									"Scope": {
+										"value": "@pipeline().parameters.pScope",
+										"type": "Expression"
+									},
+									"BaseUrl": {
+										"value": "@variables('vActivitiesParams')[0].BaseURL",
+										"type": "Expression"
+									},
+									"RunDate": {
+										"value": "@variables('vRunDate')",
+										"type": "Expression"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "lnkAzureDatabricks",
+								"type": "LinkedServiceReference"
+							}
+						},
+						{
+							"name": "Eloqua Activities Extract Act",
+							"type": "DatabricksNotebook",
+							"dependsOn": [
+								{
+									"activity": "Eloqua Activities Extract Sync",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"notebookPath": "/Eloqua/Eloqua Activities Extract Act",
+								"baseParameters": {
+									"ActivitiesPath": {
+										"value": "@variables('vActivitiesPath')",
+										"type": "Expression"
+									},
+									"EndDate": {
+										"value": "@formatDateTime(variables('vCurrentEndDate'),'yyyy-MM-dd HH:mm:ss')",
+										"type": "Expression"
+									},
+									"StartDate": {
+										"value": "@formatDateTime(variables('vCurrentStartDate'),'yyyy-MM-dd HH:mm:ss')",
+										"type": "Expression"
+									},
+									"SyncErrorPath": {
+										"value": "@concat(variables('vActivitiesPath'),'errors')",
+										"type": "Expression"
+									},
+									"SyncIDPath": {
+										"value": "@concat(variables('vActivitiesPath'),'sync')",
+										"type": "Expression"
+									},
+									"Scope": {
+										"value": "@pipeline().parameters.pScope",
+										"type": "Expression"
+									},
+									"BaseUrl": {
+										"value": "@variables('vActivitiesParams')[0].BaseURL",
+										"type": "Expression"
+									},
+									"RunDate": {
+										"value": "@variables('vRunDate')",
+										"type": "Expression"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "lnkAzureDatabricks",
+								"type": "LinkedServiceReference"
+							}
+						},
+						{
+							"name": "SetCurrentDirectory",
+							"type": "SetVariable",
+							"dependsOn": [
+								{
+									"activity": "SetUpdateStartDate",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "vRunDate",
+								"value": {
+									"value": "@formatDateTime(convertTimeZone(addDays(utcnow(),-1 ),'UTC','Central Standard Time'),'yyyy/MM/dd_hh_mm')",
+									"type": "Expression"
+								}
+							}
+						}
+					],
+					"timeout": "0.12:00:00"
+				}
+			},
+			{
+				"name": "GetActivitiesParams",
+				"type": "Lookup",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "AzureSqlSource",
+						"sqlReaderQuery": {
+							"value": "SELECT cte.*, utc.UnityCatalogName,utc.StorageAccountName FROM etl.ControlTableEloqua cte \ninner join etl.UnityCatalogConnectionStore utc on cte.UCFlag = utc.IsActiveFlag\nWHERE PipelineTriggerName = 'tgrEloquaActivities';",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "dsAzureSQLParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pSecretName": {
+								"value": "@pipeline().parameters.pAzureSQLSecretName",
+								"type": "Expression"
+							},
+							"pSchemaName": {
+								"value": "@pipeline().parameters.pAzureSQLSchemaName",
+								"type": "Expression"
+							},
+							"pTableName": {
+								"value": "@pipeline().parameters.pAzureSQLTableName",
+								"type": "Expression"
+							}
+						}
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "SetActivitiesParams",
+				"type": "SetVariable",
+				"dependsOn": [
+					{
+						"activity": "GetActivitiesParams",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "vActivitiesParams",
+					"value": {
+						"value": "@activity('GetActivitiesParams').output.value",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "SetActivitiesPath",
+				"type": "SetVariable",
+				"dependsOn": [
+					{
+						"activity": "SetActivitiesParams",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "vActivitiesPath",
+					"value": {
+						"value": "@concat('/mnt/master',variables('vActivitiesParams')[0].DataLakeDestinationDirectory)",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "Load Activities Gold Table",
+				"type": "DatabricksNotebook",
+				"dependsOn": [
+					{
+						"activity": "IterateEachActivity",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"notebookPath": "/Eloqua/Load Activities Gold Table",
+					"baseParameters": {
+						"SourceTablePaths": {
+							"value": "@{variables('vUnityCatalogNamePath')}/eloqua/activity_bounceback/,@{variables('vUnityCatalogNamePath')}/eloqua/activity_emailclickthrough/,@{variables('vUnityCatalogNamePath')}/eloqua/activity_emailopen,@{variables('vUnityCatalogNamePath')}/eloqua/activity_emailsend/,@{variables('vUnityCatalogNamePath')}/eloqua/activity_formsubmit/,@{variables('vUnityCatalogNamePath')}/eloqua/activity_pageview/,@{variables('vUnityCatalogNamePath')}/eloqua/activity_subscribe/,@{variables('vUnityCatalogNamePath')}/eloqua/activity_unsubscribe/,@{variables('vUnityCatalogNamePath')}/eloqua/activity_webvisit/",
+							"type": "Expression"
+						},
+						"UnityCatalogName": {
+							"value": "@activity('GetActivitiesParams').output.value[0].UnityCatalogName",
+							"type": "Expression"
+						},
+						"StorageAccountName": {
+							"value": "@activity('GetActivitiesParams').output.value[0].StorageAccountName",
+							"type": "Expression"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "lnkAzureDatabricks",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "Load Emails SCM Gold Table",
+				"type": "DatabricksNotebook",
+				"dependsOn": [
+					{
+						"activity": "Load Activities Gold Table",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"notebookPath": "/Eloqua/Load Emails SCM Gold Table",
+					"baseParameters": {
+						"UnityCatalogName": {
+							"value": "@activity('GetActivitiesParams').output.value[0].UnityCatalogName",
+							"type": "Expression"
+						},
+						"StorageAccountName": {
+							"value": "@activity('GetActivitiesParams').output.value[0].StorageAccountName",
+							"type": "Expression"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "lnkAzureDatabricks",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "IterateEachActivity",
+				"type": "ForEach",
+				"dependsOn": [
+					{
+						"activity": "UntilAllBatchesDone",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@activity('GetActivitiesParams').output.value",
+						"type": "Expression"
+					},
+					"isSequential": true,
+					"activities": [
+						{
+							"name": "Load Silver Tables",
+							"type": "DatabricksNotebook",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"notebookPath": "/Eloqua/Load Eloqua Silver Tables",
+								"baseParameters": {
+									"SourceDatabaseName": {
+										"value": "@item().SourceDatabaseName",
+										"type": "Expression"
+									},
+									"SourceExtractMethod": {
+										"value": "@item().SourceExtractMethod",
+										"type": "Expression"
+									},
+									"SourceKeyColumnList": {
+										"value": "@item().SourceKeyColumnList",
+										"type": "Expression"
+									},
+									"SourceTableName": {
+										"value": "@item().SourceTableName",
+										"type": "Expression"
+									},
+									"SourceTablePath": {
+										"value": "@concat(item().DataLakeDestinationDirectory,'activity_',toLower(item().ObjectName), '/',utcnow('yyyy'),'/',utcnow('MM'),'/','*')",
+										"type": "Expression"
+									},
+									"DeltaUpdateWatermarkColumnName": {
+										"value": "@item().DeltaUpdateWatermarkColumnName",
+										"type": "Expression"
+									},
+									"UCSchemaPrefix": {
+										"value": "@item().UCSchemaPrefix",
+										"type": "Expression"
+									},
+									"UnityCatalogName": {
+										"value": "@item().UnityCatalogName",
+										"type": "Expression"
+									},
+									"StorageAccountName": {
+										"value": "@item().StorageAccountName",
+										"type": "Expression"
+									},
+									"DataLakeDestinationContainer": {
+										"value": "@item().DataLakeDestinationContainer",
+										"type": "Expression"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "lnkAzureDatabricks",
+								"type": "LinkedServiceReference"
+							}
+						},
+						{
+							"name": "Update Control Table",
+							"type": "SqlServerStoredProcedure",
+							"dependsOn": [
+								{
+									"activity": "Load Silver Tables",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"storedProcedureName": "[etl].[UpdateControlTableEloqua]",
+								"storedProcedureParameters": {
+									"PipelineLastRunDateTime": {
+										"value": {
+											"value": "@variables('vEndDate')",
+											"type": "Expression"
+										},
+										"type": "DateTime"
+									},
+									"SourceTableName": {
+										"value": {
+											"value": "@item().SourceTableName",
+											"type": "Expression"
+										},
+										"type": "String"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "lnkAzureSqlParameterized",
+								"type": "LinkedServiceReference",
+								"parameters": {
+									"SecretName": {
+										"value": "@pipeline().parameters.pAzureSQLSecretName",
+										"type": "Expression"
+									}
+								}
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "SetUnityCatalogNamePath",
+				"description": "Removing dev_ or prod_ from the unity catalogue name and setting the path variable for reading bronze/silver tables while creating gold table.",
+				"type": "SetVariable",
+				"dependsOn": [
+					{
+						"activity": "SetEndDate",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "vUnityCatalogNamePath",
+					"value": {
+						"value": "@split(activity('GetActivitiesParams').output.value[0].UnityCatalogName,'_')[1]",
+						"type": "Expression"
+					}
+				}
+			}
+		],
+		"parameters": {
+			"pAzureSQLServerName": {
+				"type": "string",
+				"defaultValue": "sqlsvr-datalake-usc-dev.database.windows.net"
+			},
+			"pAzureSQLDatabaseName": {
+				"type": "string",
+				"defaultValue": "sqldb-dl-control-usc-dev"
+			},
+			"pAzureSQLUserName": {
+				"type": "string",
+				"defaultValue": "Datalake"
+			},
+			"pAzureSQLSecretName": {
+				"type": "string",
+				"defaultValue": "DLSqlCntrlConn"
+			},
+			"pAzureSQLSchemaName": {
+				"type": "string",
+				"defaultValue": "etl"
+			},
+			"pAzureSQLTableName": {
+				"type": "string",
+				"defaultValue": "ControlTableEloqua"
+			},
+			"pBatchIntervalInDays": {
+				"type": "int",
+				"defaultValue": 180
+			},
+			"pScope": {
+				"type": "string",
+				"defaultValue": "scp-databricks-usc-dev"
+			}
+		},
+		"variables": {
+			"vActivitiesParams": {
+				"type": "Array"
+			},
+			"vActivitiesPath": {
+				"type": "String"
+			},
+			"vCurrentDirectory": {
+				"type": "String"
+			},
+			"vStartDate": {
+				"type": "String"
+			},
+			"vDifference": {
+				"type": "String"
+			},
+			"vCurrentStartDate": {
+				"type": "String"
+			},
+			"vCurrentEndDate": {
+				"type": "String"
+			},
+			"vEndDate": {
+				"type": "String"
+			},
+			"vRunDate": {
+				"type": "String"
+			},
+			"vUnityCatalogNamePath": {
+				"type": "String"
+			}
+		},
+		"folder": {
+			"name": "Eloqua"
+		},
+		"annotations": []
+	}
+}

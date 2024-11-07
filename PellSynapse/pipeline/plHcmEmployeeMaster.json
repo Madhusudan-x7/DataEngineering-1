@@ -1,0 +1,97 @@
+{
+	"name": "plHcmEmployeeMaster",
+	"properties": {
+		"activities": [
+			{
+				"name": "ExecutePlExtractLoadFileToDataLake",
+				"type": "ExecutePipeline",
+				"dependsOn": [],
+				"userProperties": [],
+				"typeProperties": {
+					"pipeline": {
+						"referenceName": "plExtractLoadFileToDataLake",
+						"type": "PipelineReference"
+					},
+					"waitOnCompletion": true,
+					"parameters": {
+						"pPipelineTriggerName": {
+							"value": "@pipeline().parameters.pFileToDataLakeTrigger",
+							"type": "Expression"
+						},
+						"pTriggeringFile": {
+							"value": "@pipeline().parameters.pTriggeringFile",
+							"type": "Expression"
+						}
+					}
+				}
+			},
+			{
+				"name": "ExecutePlTransferFileToFtp",
+				"type": "ExecutePipeline",
+				"dependsOn": [
+					{
+						"activity": "ExecutePlExtractLoadFileToDataLake",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"pipeline": {
+						"referenceName": "plTransferFileToFtp",
+						"type": "PipelineReference"
+					},
+					"waitOnCompletion": true,
+					"parameters": {
+						"pAzureSQLSecretName": {
+							"value": "@pipeline().parameters.pFtpSQLSecretName",
+							"type": "Expression"
+						},
+						"pAzureSQLSchemaName": {
+							"value": "@pipeline().parameters.pFtpSQLSchemaName",
+							"type": "Expression"
+						},
+						"pAzureSQLTableName": {
+							"value": "@pipeline().parameters.pFtpSQLTableName",
+							"type": "Expression"
+						},
+						"pTriggerName": {
+							"value": "@pipeline().parameters.pFileToFtpTrigger",
+							"type": "Expression"
+						}
+					}
+				}
+			}
+		],
+		"parameters": {
+			"pTriggeringFile": {
+				"type": "string"
+			},
+			"pFileToDataLakeTrigger": {
+				"type": "string",
+				"defaultValue": "trgHcmLoad"
+			},
+			"pFileToFtpTrigger": {
+				"type": "string",
+				"defaultValue": "trgHcmEmpVarUpload"
+			},
+			"pFtpSQLSecretName": {
+				"type": "string",
+				"defaultValue": "DLSqlCntrlConn"
+			},
+			"pFtpSQLSchemaName": {
+				"type": "string",
+				"defaultValue": "etl"
+			},
+			"pFtpSQLTableName": {
+				"type": "string",
+				"defaultValue": "ControlTableFileToFTP"
+			}
+		},
+		"folder": {
+			"name": "Varicent"
+		},
+		"annotations": []
+	}
+}

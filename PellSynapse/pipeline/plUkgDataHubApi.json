@@ -1,0 +1,698 @@
+{
+	"name": "plUkgDataHubApi",
+	"properties": {
+		"activities": [
+			{
+				"name": "Copy REST API Data",
+				"type": "Copy",
+				"dependsOn": [
+					{
+						"activity": "GetTokenAuthClientId",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					},
+					{
+						"activity": "Set vLandingZonePath",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "RestSource",
+						"httpRequestTimeout": "00:01:40",
+						"requestInterval": "00.00:00:00.010",
+						"requestMethod": "GET",
+						"paginationRules": {
+							"supportRFC5988": "true"
+						}
+					},
+					"sink": {
+						"type": "JsonSink",
+						"storeSettings": {
+							"type": "AzureBlobFSWriteSettings",
+							"copyBehavior": "PreserveHierarchy"
+						},
+						"formatSettings": {
+							"type": "JsonWriteSettings",
+							"filePattern": "arrayOfObjects"
+						}
+					},
+					"enableStaging": false
+				},
+				"inputs": [
+					{
+						"referenceName": "dsRestApiClientCredentialsParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"RelativeUrl": {
+								"value": "@pipeline().parameters.pApiRelativeUrl",
+								"type": "Expression"
+							},
+							"TokenEndpointUrl": {
+								"value": "@pipeline().parameters.pTokenAuthUrl",
+								"type": "Expression"
+							},
+							"TokenClientId": {
+								"value": "@activity('GetTokenAuthClientId').output.value",
+								"type": "Expression"
+							},
+							"TokenKeyVaultSecretName": {
+								"value": "@pipeline().parameters.pTokenKeyVaultClientSecret",
+								"type": "Expression"
+							},
+							"BaseApiUrl": {
+								"value": "@pipeline().parameters.pApiBaseUrl",
+								"type": "Expression"
+							}
+						}
+					}
+				],
+				"outputs": [
+					{
+						"referenceName": "dsADLSJsonParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pDataLakeContainer": "master",
+							"pDataLakeDirectory": {
+								"value": "@pipeline().parameters.pLandingZoneDirectory",
+								"type": "Expression"
+							},
+							"pDataLakeFile": {
+								"value": "@variables('vLandingZonePath')",
+								"type": "Expression"
+							}
+						}
+					}
+				]
+			},
+			{
+				"name": "Set vCurrentTime",
+				"description": "Setting current date time in UTC format for setting up watermark for next load",
+				"type": "SetVariable",
+				"dependsOn": [],
+				"policy": {
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "vCurrentTime",
+					"value": {
+						"value": "@utcNow()",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "GetTokenAuthClientId",
+				"type": "WebActivity",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"method": "GET",
+					"url": {
+						"value": "@pipeline().parameters.pTokenKeyVaultClientId",
+						"type": "Expression"
+					},
+					"connectVia": {
+						"referenceName": "AutoResolveIntegrationRuntime",
+						"type": "IntegrationRuntimeReference"
+					},
+					"authentication": {
+						"type": "MSI",
+						"resource": "https://vault.azure.net"
+					}
+				}
+			},
+			{
+				"name": "Set vLandingZonePath",
+				"type": "SetVariable",
+				"dependsOn": [
+					{
+						"activity": "Set vCurrentTime",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "vLandingZonePath",
+					"value": {
+						"value": "@{concat(substring(\n        pipeline().parameters.pApiRelativeUrl,\n        add(\n            lastIndexOf(pipeline().parameters.pApiRelativeUrl, '/'),\n            1\n        ),\n        sub(\n            length(pipeline().parameters.pApiRelativeUrl),\n            add(\n                lastIndexOf(pipeline().parameters.pApiRelativeUrl, '/'),\n                1\n            )\n        )\n    ),'/','data_',formatDateTime(variables('vCurrentTime'), 'yyyy_MM_dd_HH_mm_ss'),'.json')}",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "LogCopySuccess",
+				"type": "Copy",
+				"dependsOn": [
+					{
+						"activity": "Copy REST API Data",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "AzureSqlSource",
+						"sqlReaderQuery": {
+							"value": "SELECT '@{pipeline().DataFactory}' as DataFactoryName,\n'@{pipeline().Pipeline}' as PipelineName,\n'@{pipeline().RunId}' as RunId,\n\n\n'master' as TargetDataLakeContainerName,\n'@{concat('data_', formatDateTime(variables('vCurrentTime'), 'yyyy_MM_dd_HH_mm_ss'))}' as TargetFileName,\n'@{pipeline().TriggerType}' as TriggerType,\n'@{pipeline().TriggerId}' as TriggerId,\n'@{pipeline().TriggerTime}' as TriggerTime,\n'@{activity('Copy REST API Data').output.rowsCopied}' as RowsCopied,\n'@{activity('Copy REST API Data').output.rowsRead}' as RowsRead,\n'@{activity('Copy REST API Data').output.usedParallelCopies}' as NoParallelCopies,\n'@{activity('Copy REST API Data').output.copyDuration}' as CopyDurationInSecs,\n'@{activity('Copy REST API Data').output.effectiveIntegrationRuntime}' as effectiveIntegrationRuntime,\n'@{activity('Copy REST API Data').output.executionDetails[0].source}' as SourceType,\n'@{activity('Copy REST API Data').output.executionDetails[0].sink}' as SinkType,\n'@{activity('Copy REST API Data').output.executionDetails[0].status}' as ExecutionStatus,\n'@{activity('Copy REST API Data').output.executionDetails[0].start}' as CopyActivityStartTime,\n'@{utcNow()}' as CopyActivityEndTime,\n'@{activity('Copy REST API Data').output.executionDetails[0].detailedDurations.queuingDuration}' as CopyActivityQueuingDurationInSecs,\n'@{activity('Copy REST API Data').output.executionDetails[0].detailedDurations.timeToFirstByte}' as CopyActivityPreCopyScriptDurationInSecs,\n'@{activity('Copy REST API Data').output.executionDetails[0].detailedDurations.transferDuration}' as CopyActivityTransferDurationInSecs,\n\n'@{pipeline().parameters.pApiRelativeUrl}' as ApiUrl,\n'@{pipeline().parameters.pTokenKeyVaultClientId}' as KeyVaultIdPath,\n'@{pipeline().parameters.pTokenKeyVaultClientSecret}' as KeyVaultSecretPath,\n'@{pipeline().parameters.pTokenAuthUrl}' as ApiAuthUrl,\n'@{pipeline().parameters.pTriggerName}' as TriggerName,\n'@{replace(string(pipeline().parameters.pMapping), '''', '''''')}' as Mapping,\n'' as ZOrderColumnList,\n'@{pipeline().parameters.pServiceName}' as ServiceName,\n'@{pipeline().parameters.pSourceEntityName}' as SourceEntityName,\n'@{variables('vLandingZonePath')}' as BronzePath,\n'' as ConcatApiUrl,\n'' as QueryParamName1,\n'' as QueryParamValue1,\n'' as QueryParamName2,\n'' as QueryParamValue2,\nnull as ErrorMessage",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"sink": {
+						"type": "AzureSqlSink",
+						"writeBehavior": "insert",
+						"sqlWriterUseTableLock": false
+					},
+					"enableStaging": false,
+					"translator": {
+						"type": "TabularTranslator",
+						"typeConversion": true,
+						"typeConversionSettings": {
+							"allowDataTruncation": true,
+							"treatBooleanAsNumber": false
+						}
+					}
+				},
+				"inputs": [
+					{
+						"referenceName": "dsAzureSQLParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pSecretName": {
+								"value": "@pipeline().parameters.pAzureSQLSecretName",
+								"type": "Expression"
+							},
+							"pSchemaName": {
+								"value": "@pipeline().parameters.pLogTableSchema",
+								"type": "Expression"
+							},
+							"pTableName": {
+								"value": "@pipeline().parameters.pLogTableName",
+								"type": "Expression"
+							}
+						}
+					}
+				],
+				"outputs": [
+					{
+						"referenceName": "dsAzureSQLParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pSecretName": {
+								"value": "@pipeline().parameters.pAzureSQLSecretName",
+								"type": "Expression"
+							},
+							"pSchemaName": {
+								"value": "@pipeline().parameters.pLogTableSchema",
+								"type": "Expression"
+							},
+							"pTableName": {
+								"value": "@pipeline().parameters.pLogTableName",
+								"type": "Expression"
+							}
+						}
+					}
+				]
+			},
+			{
+				"name": "LogCopyFailure",
+				"type": "Copy",
+				"dependsOn": [
+					{
+						"activity": "Copy REST API Data",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "AzureSqlSource",
+						"sqlReaderQuery": {
+							"value": "SELECT '@{pipeline().DataFactory}' as DataFactoryName,\n'@{pipeline().Pipeline}' as PipelineName,\n'@{pipeline().RunId}' as RunId,\n\n\n'master' as TargetDataLakeContainerName,\n'@{concat('data_', formatDateTime(variables('vCurrentTime'), 'yyyy_MM_dd_HH_mm_ss'))}' as TargetFileName,\n'@{pipeline().TriggerType}' as TriggerType,\n'@{pipeline().TriggerId}' as TriggerId,\n'@{pipeline().TriggerTime}' as TriggerTime,\n'@{activity('Copy REST API Data').output.rowsCopied}' as RowsCopied,\n'@{activity('Copy REST API Data').output.rowsRead}' as RowsRead,\n'@{activity('Copy REST API Data').output.usedParallelCopies}' as NoParallelCopies,\n'@{activity('Copy REST API Data').output.copyDuration}' as CopyDurationInSecs,\n'@{activity('Copy REST API Data').output.effectiveIntegrationRuntime}' as effectiveIntegrationRuntime,\n'@{activity('Copy REST API Data').output.executionDetails[0].source}' as SourceType,\n'@{activity('Copy REST API Data').output.executionDetails[0].sink}' as SinkType,\n'@{activity('Copy REST API Data').output.executionDetails[0].status}' as ExecutionStatus,\n'@{activity('Copy REST API Data').output.executionDetails[0].start}' as CopyActivityStartTime,\n'@{utcNow()}' as CopyActivityEndTime,\n'@{activity('Copy REST API Data').output.executionDetails[0].detailedDurations.queuingDuration}' as CopyActivityQueuingDurationInSecs,\n'@{activity('Copy REST API Data').output.executionDetails[0].detailedDurations.timeToFirstByte}' as CopyActivityPreCopyScriptDurationInSecs,\n'@{activity('Copy REST API Data').output.executionDetails[0].detailedDurations.transferDuration}' as CopyActivityTransferDurationInSecs,\n\n'@{pipeline().parameters.pApiRelativeUrl}' as ApiUrl,\n'@{pipeline().parameters.pTokenKeyVaultClientId}' as KeyVaultIdPath,\n'@{pipeline().parameters.pTokenKeyVaultClientSecret}' as KeyVaultSecretPath,\n'@{pipeline().parameters.pTokenAuthUrl}' as ApiAuthUrl,\n'@{pipeline().parameters.pTriggerName}' as TriggerName,\n'@{replace(string(pipeline().parameters.pMapping), '''', '''''')}' as Mapping,\n'' as ZOrderColumnList,\n'@{pipeline().parameters.pServiceName}' as ServiceName,\n'@{pipeline().parameters.pSourceEntityName}' as SourceEntityName,\n'@{variables('vLandingZonePath')}' as BronzePath,\n'' as ConcatApiUrl,\n'' as QueryParamName1,\n'' as QueryParamValue1,\n'' as QueryParamName2,\n'' as QueryParamValue2,\n'@{replace(activity('Copy REST API Data').output.errors[0].Message,'''','')}' as ErrorMessage",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"sink": {
+						"type": "AzureSqlSink",
+						"writeBehavior": "insert",
+						"sqlWriterUseTableLock": false
+					},
+					"enableStaging": false,
+					"translator": {
+						"type": "TabularTranslator",
+						"typeConversion": true,
+						"typeConversionSettings": {
+							"allowDataTruncation": true,
+							"treatBooleanAsNumber": false
+						}
+					}
+				},
+				"inputs": [
+					{
+						"referenceName": "dsAzureSQLParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pSecretName": {
+								"value": "@pipeline().parameters.pAzureSQLSecretName",
+								"type": "Expression"
+							},
+							"pSchemaName": {
+								"value": "@pipeline().parameters.pLogTableSchema",
+								"type": "Expression"
+							},
+							"pTableName": {
+								"value": "@pipeline().parameters.pLogTableName",
+								"type": "Expression"
+							}
+						}
+					}
+				],
+				"outputs": [
+					{
+						"referenceName": "dsAzureSQLParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pSecretName": {
+								"value": "@pipeline().parameters.pAzureSQLSecretName",
+								"type": "Expression"
+							},
+							"pSchemaName": {
+								"value": "@pipeline().parameters.pLogTableSchema",
+								"type": "Expression"
+							},
+							"pTableName": {
+								"value": "@pipeline().parameters.pLogTableName",
+								"type": "Expression"
+							}
+						}
+					}
+				]
+			},
+			{
+				"name": "UpdateCtrlTable",
+				"type": "Script",
+				"dependsOn": [
+					{
+						"activity": "DeleteFromMainFolder",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"linkedServiceName": {
+					"referenceName": "lnkAzureSqlParameterized",
+					"type": "LinkedServiceReference",
+					"parameters": {
+						"SecretName": "DLSqlCntrlConn"
+					}
+				},
+				"typeProperties": {
+					"scripts": [
+						{
+							"type": "NonQuery",
+							"text": {
+								"value": "UPDATE [etl].[ControlTableUKGAPIToAdls]\nSET ParamValue1 = '@{pipeline().parameters.pTriggerName}',\nParamValue2 = '@{pipeline().parameters.pSourceEntityName}',\nParamValue3 = '@{pipeline().parameters.pTriggerName}'\nWHERE TriggerName = '@{pipeline().parameters.pTriggerName}'\nAND IsActiveFlag = 'Y'\nAND SourceEntityName = '@{pipeline().parameters.pSourceEntityName}';",
+								"type": "Expression"
+							}
+						}
+					],
+					"scriptBlockExecutionTimeout": "00:02:00"
+				}
+			},
+			{
+				"name": "LoadDeltaLakeSilver",
+				"type": "DatabricksNotebook",
+				"dependsOn": [
+					{
+						"activity": "LogCopySuccess",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"notebookPath": "/SilverToGold/Dev/In-Development/LoadUKGData",
+					"baseParameters": {
+						"SourceServiceName": {
+							"value": "@pipeline().parameters.pServiceName",
+							"type": "Expression"
+						},
+						"SourceEntityName": {
+							"value": "@pipeline().parameters.pSourceEntityName",
+							"type": "Expression"
+						},
+						"SourceBronzePath": {
+							"value": "@pipeline().parameters.pBronzePath",
+							"type": "Expression"
+						},
+						"UnityCatalogName": {
+							"value": "@pipeline().parameters.pUnityCatalogName",
+							"type": "Expression"
+						},
+						"StorageAccountName": {
+							"value": "@pipeline().parameters.pStorageAccountName",
+							"type": "Expression"
+						},
+						"ControlLoadKey": "api_pukg_safety_hours",
+						"TargetEnvironment": "dev",
+						"ControlEnv": "dev",
+						"ControlCatalog": "bronze",
+						"ControlSchema": "edm_qa",
+						"ControlTable": "control_table"
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "lnkAzureDatabricks",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "ToUKGArchive",
+				"type": "Copy",
+				"dependsOn": [
+					{
+						"activity": "LoadDeltaLakeSilver",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "JsonSource",
+						"storeSettings": {
+							"type": "AzureBlobFSReadSettings",
+							"recursive": true,
+							"enablePartitionDiscovery": false
+						},
+						"formatSettings": {
+							"type": "JsonReadSettings"
+						}
+					},
+					"sink": {
+						"type": "JsonSink",
+						"storeSettings": {
+							"type": "AzureBlobFSWriteSettings"
+						},
+						"formatSettings": {
+							"type": "JsonWriteSettings"
+						}
+					},
+					"enableStaging": false
+				},
+				"inputs": [
+					{
+						"referenceName": "dsADLSJsonParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pDataLakeContainer": "master",
+							"pDataLakeDirectory": {
+								"value": "@pipeline().parameters.pLandingZoneDirectory",
+								"type": "Expression"
+							},
+							"pDataLakeFile": {
+								"value": "@variables('vLandingZonePath')",
+								"type": "Expression"
+							}
+						}
+					}
+				],
+				"outputs": [
+					{
+						"referenceName": "dsADLSJsonParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pDataLakeContainer": "master",
+							"pDataLakeDirectory": "ukg_landing_zone_archived",
+							"pDataLakeFile": {
+								"value": "@variables('vLandingZonePath')",
+								"type": "Expression"
+							}
+						}
+					}
+				]
+			},
+			{
+				"name": "DeleteFromMainFolder",
+				"type": "Delete",
+				"dependsOn": [
+					{
+						"activity": "ToUKGArchive",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"dataset": {
+						"referenceName": "dsADLSJsonParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pDataLakeContainer": "master",
+							"pDataLakeDirectory": {
+								"value": "@pipeline().parameters.pLandingZoneDirectory",
+								"type": "Expression"
+							},
+							"pDataLakeFile": {
+								"value": "@variables('vLandingZonePath')",
+								"type": "Expression"
+							}
+						}
+					},
+					"enableLogging": false,
+					"storeSettings": {
+						"type": "AzureBlobFSReadSettings",
+						"recursive": true,
+						"enablePartitionDiscovery": false
+					}
+				}
+			}
+		],
+		"parameters": {
+			"pAzureSQLSecretName": {
+				"type": "string",
+				"defaultValue": "DLSqlCntrlConn"
+			},
+			"pTokenKeyVaultClientId": {
+				"type": "string",
+				"defaultValue": "https://kvl-keyvlt-usc-dev.vault.azure.net/secrets/UkgApiClientId?api-version=7.0"
+			},
+			"pTokenKeyVaultClientSecret": {
+				"type": "string",
+				"defaultValue": "UkgApiClientSecret"
+			},
+			"pTokenAuthUrl": {
+				"type": "string",
+				"defaultValue": "https://portal.mypella.com/oauth2/aus50p57u3mVdJVO05d7/v1/token"
+			},
+			"pApiBaseUrl": {
+				"type": "string",
+				"defaultValue": "https://api.pella.com"
+			},
+			"pApiRelativeUrl": {
+				"type": "string",
+				"defaultValue": "/ukg-datahub/v1/get-data/safety_hrs"
+			},
+			"pLandingZoneDirectory": {
+				"type": "string",
+				"defaultValue": "/landing_zone/"
+			},
+			"pTriggerName": {
+				"type": "string",
+				"defaultValue": "trgUKGApi"
+			},
+			"pMapping": {
+				"type": "object",
+				"defaultValue": {
+					"type": "TabularTranslator",
+					"mappings": [
+						{
+							"source": {
+								"path": "['orgBreak5']"
+							},
+							"sink": {
+								"name": "orgBreak5",
+								"type": "String"
+							}
+						},
+						{
+							"source": {
+								"path": "['orgBreak7']"
+							},
+							"sink": {
+								"name": "orgBreak7",
+								"type": "String"
+							}
+						},
+						{
+							"source": {
+								"path": "['primaryLaborEntryName1']"
+							},
+							"sink": {
+								"name": "primaryLaborEntryName1",
+								"type": "String"
+							}
+						},
+						{
+							"source": {
+								"path": "['hrs_dt']"
+							},
+							"sink": {
+								"name": "hrs_dt",
+								"type": "String"
+							}
+						},
+						{
+							"source": {
+								"path": "['est_work']"
+							},
+							"sink": {
+								"name": "est_work",
+								"type": "String"
+							}
+						},
+						{
+							"source": {
+								"path": "['est_paid_hrs']"
+							},
+							"sink": {
+								"name": "est_paid_hrs",
+								"type": "String"
+							}
+						},
+						{
+							"source": {
+								"path": "['EE_TYPE']"
+							},
+							"sink": {
+								"name": "EE_TYPE",
+								"type": "String"
+							}
+						}
+					],
+					"collectionReference": "$['UKGData']"
+				}
+			},
+			"pServiceName": {
+				"type": "string",
+				"defaultValue": "UKG"
+			},
+			"pSourceEntityName": {
+				"type": "string",
+				"defaultValue": "safety_hours"
+			},
+			"pStorageAccountName": {
+				"type": "string",
+				"defaultValue": "stdlalds2uscdev"
+			},
+			"pUnityCatalogName": {
+				"type": "string",
+				"defaultValue": "dev_bronze"
+			},
+			"pBronzePath": {
+				"type": "string",
+				"defaultValue": "safety_hrs/"
+			},
+			"pLogTableSchema": {
+				"type": "string",
+				"defaultValue": "log"
+			},
+			"pLogTableName": {
+				"type": "string",
+				"defaultValue": "UKGToAdlsPipelineRunLogs"
+			}
+		},
+		"variables": {
+			"vCurrentTime": {
+				"type": "String"
+			},
+			"vLandingZonePath": {
+				"type": "String"
+			}
+		},
+		"folder": {
+			"name": "UKG Data Hub"
+		},
+		"annotations": []
+	}
+}

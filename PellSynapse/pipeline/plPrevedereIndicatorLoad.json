@@ -1,0 +1,767 @@
+{
+	"name": "plPrevedereIndicatorLoad",
+	"properties": {
+		"activities": [
+			{
+				"name": "SetLandingZonePath",
+				"type": "SetVariable",
+				"dependsOn": [],
+				"policy": {
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "vLandingZonePath",
+					"value": {
+						"value": "@concat(pipeline().parameters.pDataLakeDirectory,'/',pipeline().parameters.pSourceEntityName,'/',formatDateTime(utcNow(),'yyyy'),'/',formatDateTime(utcNow(),'MM'),'/',formatDateTime(utcNow(),'dd_hh_mm'))",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "AdlsLoad",
+				"description": "copying Raw data",
+				"type": "Copy",
+				"dependsOn": [
+					{
+						"activity": "SetFileName",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "RestSource",
+						"httpRequestTimeout": "00:01:40",
+						"requestInterval": "00.00:00:00.010",
+						"requestMethod": "GET",
+						"additionalHeaders": {
+							"ApiKey": {
+								"value": "@pipeline().parameters.pApiKey",
+								"type": "Expression"
+							}
+						},
+						"paginationRules": {
+							"supportRFC5988": "true"
+						}
+					},
+					"sink": {
+						"type": "ParquetSink",
+						"storeSettings": {
+							"type": "AzureBlobFSWriteSettings"
+						},
+						"formatSettings": {
+							"type": "ParquetWriteSettings"
+						}
+					},
+					"enableStaging": false,
+					"translator": {
+						"value": "@pipeline().parameters.pMapping",
+						"type": "Expression"
+					}
+				},
+				"inputs": [
+					{
+						"referenceName": "dsRestAnonymousParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pPath": {
+								"value": "@if(contains(pipeline().parameters.pParamName1,'search'),\nconcat(pipeline().parameters.pParamName1,'=',pipeline().parameters.pParamValue1,'?')\n,concat(pipeline().parameters.pParamValue1,'/',pipeline().parameters.pParamValue2,'?'))",
+								"type": "Expression"
+							},
+							"pBaseUrl": {
+								"value": "@pipeline().parameters.pApiUrl",
+								"type": "Expression"
+							}
+						}
+					}
+				],
+				"outputs": [
+					{
+						"referenceName": "dsADLSParquetParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pDataLakeContainer": "master",
+							"pDataLakeDirectory": {
+								"value": "@variables('vLandingZonePath')",
+								"type": "Expression"
+							},
+							"pDataLakeFile": {
+								"value": "@variables('vFileName')",
+								"type": "Expression"
+							}
+						}
+					}
+				]
+			},
+			{
+				"name": "LogCopySuccess",
+				"type": "Copy",
+				"dependsOn": [
+					{
+						"activity": "SetRunDate",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "AzureSqlSource",
+						"sqlReaderQuery": {
+							"value": "SELECT '@{pipeline().DataFactory}' as DataFactoryName,\n'@{pipeline().Pipeline}' as PipelineName,\n'@{pipeline().RunId}' as RunId,\n'master' as TargetDataLakeContainerName,\n'@{concat('data_', formatDateTime(utcNow(), 'yyyy_MM_dd'))}' as TargetFileName,\n'@{pipeline().TriggerType}' as TriggerType,\n'@{pipeline().TriggerId}' as TriggerId,\n'@{pipeline().TriggerTime}' as TriggerTime,\n'@{activity('AdlsLoad').output.rowsCopied}' as RowsCopied,\n'@{activity('AdlsLoad').output.rowsRead}' as RowsRead,\n'@{activity('AdlsLoad').output.usedParallelCopies}' as NoParallelCopies,\n'@{activity('AdlsLoad').output.copyDuration}' as CopyDurationInSecs,\n'@{activity('AdlsLoad').output.effectiveIntegrationRuntime}' as effectiveIntegrationRuntime,\n'@{activity('AdlsLoad').output.executionDetails[0].source}' as SourceType,\n'@{activity('AdlsLoad').output.executionDetails[0].sink}' as SinkType,\n'@{activity('AdlsLoad').output.executionDetails[0].status}' as ExecutionStatus,\n'@{activity('AdlsLoad').output.executionDetails[0].start}' as CopyActivityStartTime,\n'@{utcNow()}' as CopyActivityEndTime,\n'@{activity('AdlsLoad').output.executionDetails[0].detailedDurations.queuingDuration}' as CopyActivityQueuingDurationInSecs,\n'@{activity('AdlsLoad').output.executionDetails[0].detailedDurations.timeToFirstByte}' as CopyActivityPreCopyScriptDurationInSecs,\n'@{activity('AdlsLoad').output.executionDetails[0].detailedDurations.transferDuration}' as CopyActivityTransferDurationInSecs,\n\n'@{pipeline().parameters.pApiUrl}' as ApiUrl,\n'@{pipeline().parameters.pTriggerName}' as TriggerName,\n'@{replace(string(pipeline().parameters.pMapping), '''', '''''')}' as Mapping,\n'@{pipeline().parameters.pZOrderColumnList}' as ZOrderColumnList,\n'@{pipeline().parameters.pServiceName}' as ServiceName,\n'@{pipeline().parameters.pSourceEntityName}' as SourceEntityName,\n'@{variables('vLandingZonePath')}' as BronzePath,\n'@{concat(pipeline().parameters.pApiUrl,'/',pipeline().parameters.pParamValue1,'/',pipeline().parameters.pParamValue2)}'  as ConcatApiUrl,\n'@{pipeline().parameters.pParamName1}' as QueryParamName1,\n'@{pipeline().parameters.pParamValue1}' as QueryParamValue1,\n'@{pipeline().parameters.pParamName2}' as QueryParamName2,\n'@{pipeline().parameters.pParamValue2}' as QueryParamValue2,\nnull as ErrorMessage",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"sink": {
+						"type": "AzureSqlSink",
+						"writeBehavior": "insert",
+						"sqlWriterUseTableLock": false
+					},
+					"enableStaging": false,
+					"translator": {
+						"type": "TabularTranslator",
+						"typeConversion": true,
+						"typeConversionSettings": {
+							"allowDataTruncation": true,
+							"treatBooleanAsNumber": false
+						}
+					}
+				},
+				"inputs": [
+					{
+						"referenceName": "dsAzureSQLParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pSecretName": "DLSqlCntrlConn",
+							"pSchemaName": "log",
+							"pTableName": "PrevedereToAdlsPipelineRunLogs"
+						}
+					}
+				],
+				"outputs": [
+					{
+						"referenceName": "dsAzureSQLParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pSecretName": "DLSqlCntrlConn",
+							"pSchemaName": "log",
+							"pTableName": "PrevedereToAdlsPipelineRunLogs"
+						}
+					}
+				]
+			},
+			{
+				"name": "LogCopyFailure",
+				"type": "Copy",
+				"dependsOn": [
+					{
+						"activity": "AdlsLoadRetry",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "AzureSqlSource",
+						"sqlReaderQuery": {
+							"value": "SELECT '@{pipeline().DataFactory}' as DataFactoryName,\n'@{pipeline().Pipeline}' as PipelineName,\n'@{pipeline().RunId}' as RunId,\n'master' as TargetDataLakeContainerName,\n'@{concat('data_', formatDateTime(utcNow(), 'yyyy_MM_dd'))}' as TargetFileName,\n'@{pipeline().TriggerType}' as TriggerType,\n'@{pipeline().TriggerId}' as TriggerId,\n'@{pipeline().TriggerTime}' as TriggerTime,\n'@{activity('AdlsLoad').output.rowsCopied}' as RowsCopied,\n'@{activity('AdlsLoad').output.rowsRead}' as RowsRead,\n'@{activity('AdlsLoad').output.usedParallelCopies}' as NoParallelCopies,\n'@{activity('AdlsLoad').output.copyDuration}' as CopyDurationInSecs,\n'@{activity('AdlsLoad').output.effectiveIntegrationRuntime}' as effectiveIntegrationRuntime,\n'@{activity('AdlsLoad').output.executionDetails[0].source}' as SourceType,\n'@{activity('AdlsLoad').output.executionDetails[0].sink}' as SinkType,\n'@{activity('AdlsLoad').output.executionDetails[0].status}' as ExecutionStatus,\n'@{activity('AdlsLoad').output.executionDetails[0].start}' as CopyActivityStartTime,\n'@{utcNow()}' as CopyActivityEndTime,\n'@{activity('AdlsLoad').output.executionDetails[0].detailedDurations.queuingDuration}' as CopyActivityQueuingDurationInSecs,\n'@{activity('AdlsLoad').output.executionDetails[0].detailedDurations.timeToFirstByte}' as CopyActivityPreCopyScriptDurationInSecs,\n'@{activity('AdlsLoad').output.executionDetails[0].detailedDurations.transferDuration}' as CopyActivityTransferDurationInSecs,\n\n'@{pipeline().parameters.pApiUrl}' as ApiUrl,\n'@{pipeline().parameters.pTriggerName}' as TriggerName,\n'@{replace(string(pipeline().parameters.pMapping), '''', '''''')}' as Mapping,\n'@{pipeline().parameters.pZOrderColumnList}' as ZOrderColumnList,\n'@{pipeline().parameters.pServiceName}' as ServiceName,\n'@{pipeline().parameters.pSourceEntityName}' as SourceEntityName,\n'@{variables('vLandingZonePath')}' as BronzePath,\n'@{concat(pipeline().parameters.pApiUrl,'/',pipeline().parameters.pParamValue1,'/',pipeline().parameters.pParamValue2)}'  as ConcatApiUrl,\n'@{pipeline().parameters.pParamName1}' as QueryParamName1,\n'@{pipeline().parameters.pParamValue1}' as QueryParamValue1,\n'@{pipeline().parameters.pParamName2}' as QueryParamName2,\n'@{pipeline().parameters.pParamValue2}' as QueryParamValue2,\n'@{replace(activity('AdlsLoadRetry').output.errors[0].Message,'''','')}' as ErrorMessage",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"sink": {
+						"type": "AzureSqlSink",
+						"writeBehavior": "insert",
+						"sqlWriterUseTableLock": false
+					},
+					"enableStaging": false,
+					"translator": {
+						"type": "TabularTranslator",
+						"typeConversion": true,
+						"typeConversionSettings": {
+							"allowDataTruncation": true,
+							"treatBooleanAsNumber": false
+						}
+					}
+				},
+				"inputs": [
+					{
+						"referenceName": "dsAzureSQLParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pSecretName": {
+								"value": "@pipeline().parameters.pAzureSQLSecretName",
+								"type": "Expression"
+							},
+							"pSchemaName": "log",
+							"pTableName": "PrevedereToAdlsPipelineRunLogs"
+						}
+					}
+				],
+				"outputs": [
+					{
+						"referenceName": "dsAzureSQLParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pSecretName": {
+								"value": "@pipeline().parameters.pAzureSQLSecretName",
+								"type": "Expression"
+							},
+							"pSchemaName": "log",
+							"pTableName": "PrevedereToAdlsPipelineRunLogs"
+						}
+					}
+				]
+			},
+			{
+				"name": "LogCopySuccessRetry",
+				"type": "Copy",
+				"dependsOn": [
+					{
+						"activity": "SetRunDateRetry",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "AzureSqlSource",
+						"sqlReaderQuery": {
+							"value": "SELECT '@{pipeline().DataFactory}' as DataFactoryName,\n'@{pipeline().Pipeline}' as PipelineName,\n'@{pipeline().RunId}' as RunId,\n'master' as TargetDataLakeContainerName,\n'@{concat('data_', formatDateTime(utcNow(), 'yyyy_MM_dd'))}' as TargetFileName,\n'@{pipeline().TriggerType}' as TriggerType,\n'@{pipeline().TriggerId}' as TriggerId,\n'@{pipeline().TriggerTime}' as TriggerTime,\n'@{activity('AdlsLoad').output.rowsCopied}' as RowsCopied,\n'@{activity('AdlsLoad').output.rowsRead}' as RowsRead,\n'@{activity('AdlsLoad').output.usedParallelCopies}' as NoParallelCopies,\n'@{activity('AdlsLoad').output.copyDuration}' as CopyDurationInSecs,\n'@{activity('AdlsLoad').output.effectiveIntegrationRuntime}' as effectiveIntegrationRuntime,\n'@{activity('AdlsLoad').output.executionDetails[0].source}' as SourceType,\n'@{activity('AdlsLoad').output.executionDetails[0].sink}' as SinkType,\n'@{activity('AdlsLoad').output.executionDetails[0].status}' as ExecutionStatus,\n'@{activity('AdlsLoad').output.executionDetails[0].start}' as CopyActivityStartTime,\n'@{utcNow()}' as CopyActivityEndTime,\n'@{activity('AdlsLoad').output.executionDetails[0].detailedDurations.queuingDuration}' as CopyActivityQueuingDurationInSecs,\n'@{activity('AdlsLoad').output.executionDetails[0].detailedDurations.timeToFirstByte}' as CopyActivityPreCopyScriptDurationInSecs,\n'@{activity('AdlsLoad').output.executionDetails[0].detailedDurations.transferDuration}' as CopyActivityTransferDurationInSecs,\n\n'@{pipeline().parameters.pApiUrl}' as ApiUrl,\n'@{pipeline().parameters.pTriggerName}' as TriggerName,\n'@{replace(string(pipeline().parameters.pMapping), '''', '''''')}' as Mapping,\n'@{pipeline().parameters.pZOrderColumnList}' as ZOrderColumnList,\n'@{pipeline().parameters.pServiceName}' as ServiceName,\n'@{pipeline().parameters.pSourceEntityName}' as SourceEntityName,\n'@{variables('vLandingZonePath')}' as BronzePath,\n'@{concat(pipeline().parameters.pApiUrl,'/',pipeline().parameters.pParamValue1,'/',pipeline().parameters.pParamValue2)}'  as ConcatApiUrl,\n'@{pipeline().parameters.pParamName1}' as QueryParamName1,\n'@{pipeline().parameters.pParamValue1}' as QueryParamValue1,\n'@{pipeline().parameters.pParamName2}' as QueryParamName2,\n'@{pipeline().parameters.pParamValue2}' as QueryParamValue2,\nnull as ErrorMessage",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"sink": {
+						"type": "AzureSqlSink",
+						"writeBehavior": "insert",
+						"sqlWriterUseTableLock": false
+					},
+					"enableStaging": false,
+					"translator": {
+						"type": "TabularTranslator",
+						"typeConversion": true,
+						"typeConversionSettings": {
+							"allowDataTruncation": true,
+							"treatBooleanAsNumber": false
+						}
+					}
+				},
+				"inputs": [
+					{
+						"referenceName": "dsAzureSQLParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pSecretName": "DLSqlCntrlConn",
+							"pSchemaName": "log",
+							"pTableName": "PrevedereToAdlsPipelineRunLogs"
+						}
+					}
+				],
+				"outputs": [
+					{
+						"referenceName": "dsAzureSQLParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pSecretName": "DLSqlCntrlConn",
+							"pSchemaName": "log",
+							"pTableName": "PrevedereToAdlsPipelineRunLogs"
+						}
+					}
+				]
+			},
+			{
+				"name": "AdlsLoadRetry",
+				"type": "Copy",
+				"dependsOn": [
+					{
+						"activity": "AdlsLoad",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "RestSource",
+						"httpRequestTimeout": "00:01:40",
+						"requestInterval": "00.00:00:00.010",
+						"requestMethod": "GET",
+						"additionalHeaders": {
+							"ApiKey": {
+								"value": "@pipeline().parameters.pApiKey",
+								"type": "Expression"
+							}
+						},
+						"paginationRules": {
+							"supportRFC5988": "true"
+						}
+					},
+					"sink": {
+						"type": "ParquetSink",
+						"storeSettings": {
+							"type": "AzureBlobFSWriteSettings"
+						},
+						"formatSettings": {
+							"type": "ParquetWriteSettings"
+						}
+					},
+					"enableStaging": false,
+					"translator": {
+						"value": "@pipeline().parameters.pMapping",
+						"type": "Expression"
+					}
+				},
+				"inputs": [
+					{
+						"referenceName": "dsRestAnonymousParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pPath": {
+								"value": "@if(contains(pipeline().parameters.pParamName1,'search'),\nconcat(pipeline().parameters.pParamName1,'=',pipeline().parameters.pParamValue1,'?')\n,concat(pipeline().parameters.pParamValue1,'/',pipeline().parameters.pParamValue2,'?'))",
+								"type": "Expression"
+							},
+							"pBaseUrl": {
+								"value": "@pipeline().parameters.pApiUrl",
+								"type": "Expression"
+							}
+						}
+					}
+				],
+				"outputs": [
+					{
+						"referenceName": "dsADLSParquetParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pDataLakeContainer": "master",
+							"pDataLakeDirectory": {
+								"value": "@variables('vLandingZonePath')",
+								"type": "Expression"
+							},
+							"pDataLakeFile": {
+								"value": "@variables('vFileName')",
+								"type": "Expression"
+							}
+						}
+					}
+				]
+			},
+			{
+				"name": "SetRunDateRetry",
+				"type": "SetVariable",
+				"dependsOn": [
+					{
+						"activity": "AdlsLoadRetry",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "vRunDate",
+					"value": {
+						"value": "@utcNow('yyyy-MM-dd HH:mm:ss')",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "UpdtCntlTbl",
+				"type": "Script",
+				"dependsOn": [
+					{
+						"activity": "LoadDeltaLakeBronze",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"linkedServiceName": {
+					"referenceName": "lnkAzureSqlParameterized",
+					"type": "LinkedServiceReference",
+					"parameters": {
+						"SecretName": "DLSqlCntrlConn"
+					}
+				},
+				"typeProperties": {
+					"scripts": [
+						{
+							"type": "NonQuery",
+							"text": {
+								"value": "UPDATE etl.ControlTablePrevedereAPIToAdls\nSET RunDate = '@{variables('vRunDate')}'\nWHERE TriggerName = '@{pipeline().parameters.pTriggerName}'\nAND ActiveFlag = 'Y'\nAND SourceEntityName = '@{pipeline().parameters.pSourceEntityName}';",
+								"type": "Expression"
+							}
+						}
+					],
+					"scriptBlockExecutionTimeout": "02:00:00"
+				}
+			},
+			{
+				"name": "LoadDeltaLakeBronze",
+				"type": "DatabricksNotebook",
+				"dependsOn": [
+					{
+						"activity": "LogCopySuccess",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"notebookPath": {
+						"value": "@pipeline().parameters.pBronzeNotebookPath",
+						"type": "Expression"
+					},
+					"baseParameters": {
+						"ProviderId": {
+							"value": "@if(equals(pipeline().parameters.pParamName2, 'providerid'),pipeline().parameters.pParamValue2,'')",
+							"type": "Expression"
+						},
+						"RunTime": {
+							"value": "@variables('vRunDate')",
+							"type": "Expression"
+						},
+						"LandingZonePath": {
+							"value": "@variables('vLandingZonePath')",
+							"type": "Expression"
+						},
+						"StorageAccountName": {
+							"value": "@pipeline().parameters.pStorageAccountName",
+							"type": "Expression"
+						},
+						"CatalogName": {
+							"value": "@pipeline().parameters.pUnityCatalogName",
+							"type": "Expression"
+						},
+						"Scope": {
+							"value": "@pipeline().parameters.pDatabricksScope",
+							"type": "Expression"
+						},
+						"Key": {
+							"value": "@pipeline().parameters.pKey",
+							"type": "Expression"
+						},
+						"Provider": {
+							"value": "@if(equals(pipeline().parameters.pParamName1, 'provider'),pipeline().parameters.pParamValue1,'')",
+							"type": "Expression"
+						},
+						"BronzeFolderName": {
+							"value": "@pipeline().parameters.pBronzeFolderName",
+							"type": "Expression"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "lnkAzureDatabricks",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "UpdtCntlTblRetry",
+				"type": "Script",
+				"dependsOn": [
+					{
+						"activity": "LoadDeltaLakeBronzeRetry",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"linkedServiceName": {
+					"referenceName": "lnkAzureSqlParameterized",
+					"type": "LinkedServiceReference",
+					"parameters": {
+						"SecretName": "DLSqlCntrlConn"
+					}
+				},
+				"typeProperties": {
+					"scripts": [
+						{
+							"type": "NonQuery",
+							"text": {
+								"value": "UPDATE etl.ControlTablePrevedereAPIToAdls\nSET RunDate = '@{variables('vRunDate')}'\nWHERE TriggerName = '@{pipeline().parameters.pTriggerName}'\nAND ActiveFlag = 'Y'\nAND SourceEntityName = '@{pipeline().parameters.pSourceEntityName}';",
+								"type": "Expression"
+							}
+						}
+					],
+					"scriptBlockExecutionTimeout": "02:00:00"
+				}
+			},
+			{
+				"name": "LoadDeltaLakeBronzeRetry",
+				"type": "DatabricksNotebook",
+				"dependsOn": [
+					{
+						"activity": "LogCopySuccessRetry",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"notebookPath": {
+						"value": "@pipeline().parameters.pBronzeNotebookPath",
+						"type": "Expression"
+					},
+					"baseParameters": {
+						"ProviderId": {
+							"value": "@if(equals(pipeline().parameters.pParamName2, 'providerid'),pipeline().parameters.pParamValue2,'')",
+							"type": "Expression"
+						},
+						"RunTime": {
+							"value": "@variables('vRunDate')",
+							"type": "Expression"
+						},
+						"LandingZonePath": {
+							"value": "@variables('vLandingZonePath')",
+							"type": "Expression"
+						},
+						"FileName": {
+							"value": "@variables('vFileName')",
+							"type": "Expression"
+						},
+						"StorageAccountName": {
+							"value": "@pipeline().parameters.pStorageAccountName",
+							"type": "Expression"
+						},
+						"CatalogName": {
+							"value": "@pipeline().parameters.pUnityCatalogName",
+							"type": "Expression"
+						},
+						"Scope": {
+							"value": "@pipeline().parameters.pDatabricksScope",
+							"type": "Expression"
+						},
+						"Key": {
+							"value": "@pipeline().parameters.pKey",
+							"type": "Expression"
+						},
+						"Provider": {
+							"value": "@if(equals(pipeline().parameters.pParamName1, 'provider'),pipeline().parameters.pParamValue1,'')",
+							"type": "Expression"
+						},
+						"BronzeFolderName": {
+							"value": "@pipeline().parameters.pBronzeFolderName",
+							"type": "Expression"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "lnkAzureDatabricks",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SetFileName",
+				"type": "SetVariable",
+				"dependsOn": [
+					{
+						"activity": "SetLandingZonePath",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "vFileName",
+					"value": {
+						"value": "@concat('data_',formatDateTime(utcNow(),'dd_MM_yyyy_HH_mm_ss'))\n\n",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "SetRunDate",
+				"type": "SetVariable",
+				"dependsOn": [
+					{
+						"activity": "AdlsLoad",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "vRunDate",
+					"value": {
+						"value": "@utcNow('yyyy-MM-dd HH:mm:ss')",
+						"type": "Expression"
+					}
+				}
+			}
+		],
+		"parameters": {
+			"pDataLakeDirectory": {
+				"type": "string"
+			},
+			"pSourceEntityName": {
+				"type": "string"
+			},
+			"pParamName1": {
+				"type": "string"
+			},
+			"pParamValue1": {
+				"type": "string"
+			},
+			"pParamValue2": {
+				"type": "string"
+			},
+			"pApiUrl": {
+				"type": "string"
+			},
+			"pTriggerName": {
+				"type": "string"
+			},
+			"pAzureSQLSecretName": {
+				"type": "string"
+			},
+			"pMapping": {
+				"type": "object"
+			},
+			"pZOrderColumnList": {
+				"type": "string"
+			},
+			"pServiceName": {
+				"type": "string"
+			},
+			"pParamName2": {
+				"type": "string"
+			},
+			"pBronzeNotebookPath": {
+				"type": "string"
+			},
+			"pDatabricksScope": {
+				"type": "string"
+			},
+			"pStorageAccountName": {
+				"type": "string"
+			},
+			"pUnityCatalogName": {
+				"type": "string"
+			},
+			"pKey": {
+				"type": "string"
+			},
+			"pBronzeFolderName": {
+				"type": "string"
+			},
+			"pKeyVaultSecretPath": {
+				"type": "string"
+			},
+			"pApiKey": {
+				"type": "string"
+			}
+		},
+		"variables": {
+			"vLandingZonePath": {
+				"type": "String"
+			},
+			"vFileName": {
+				"type": "String"
+			},
+			"vRunDate": {
+				"type": "String"
+			}
+		},
+		"folder": {
+			"name": "Prevedere"
+		},
+		"annotations": []
+	}
+}

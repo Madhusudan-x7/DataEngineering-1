@@ -1,0 +1,275 @@
+{
+	"name": "plTriggerHyperconnectTask",
+	"properties": {
+		"activities": [
+			{
+				"name": "TriggerAPI",
+				"type": "WebActivity",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"url": {
+						"value": "@concat('https://usw3.dm-us.informaticacloud.com/active-bpel/rt/',pipeline().parameters.pHyperConnectTaskName)",
+						"type": "Expression"
+					},
+					"connectVia": {
+						"referenceName": "AutoResolveIntegrationRuntime",
+						"type": "IntegrationRuntimeReference"
+					},
+					"method": "GET",
+					"authentication": {
+						"type": "Basic",
+						"username": {
+							"value": "@pipeline().parameters.pHyperConnectUser",
+							"type": "Expression"
+						},
+						"password": {
+							"type": "AzureKeyVaultSecret",
+							"store": {
+								"referenceName": "lnkAzureKeyVault",
+								"type": "LinkedServiceReference"
+							},
+							"secretName": "HyperconnectADFPwd"
+						}
+					}
+				}
+			},
+			{
+				"name": "ReadRunID",
+				"type": "SetVariable",
+				"dependsOn": [
+					{
+						"activity": "TriggerAPI",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "vHyperConnectRunID",
+					"value": {
+						"value": "@activity('TriggerAPI').output.RunId",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "UntilCheckStatus",
+				"type": "Until",
+				"dependsOn": [
+					{
+						"activity": "ReadRunID",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@equals(variables('vTaskStatus'),'SUCCESS')",
+						"type": "Expression"
+					},
+					"activities": [
+						{
+							"name": "CheckStatus",
+							"type": "WebActivity",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "0.00:01:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"url": {
+									"value": "@concat('https://usw3.dm-us.informaticacloud.com/active-bpel/services/tf/status?runId=',variables('vHyperConnectRunID'))",
+									"type": "Expression"
+								},
+								"connectVia": {
+									"referenceName": "AutoResolveIntegrationRuntime",
+									"type": "IntegrationRuntimeReference"
+								},
+								"method": "GET",
+								"authentication": {
+									"type": "Basic",
+									"username": {
+										"value": "@pipeline().parameters.pHyperConnectUser",
+										"type": "Expression"
+									},
+									"password": {
+										"type": "AzureKeyVaultSecret",
+										"store": {
+											"referenceName": "lnkAzureKeyVault",
+											"type": "LinkedServiceReference"
+										},
+										"secretName": "HyperconnectADFPwd"
+									}
+								}
+							}
+						},
+						{
+							"name": "AssignStatus",
+							"type": "SetVariable",
+							"dependsOn": [
+								{
+									"activity": "CheckStatus",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "vTaskStatus",
+								"value": {
+									"value": "@json(activity('CheckStatus').output.Response)[0].status",
+									"type": "Expression"
+								}
+							}
+						}
+					],
+					"timeout": "0.01:00:01"
+				}
+			},
+			{
+				"name": "Switch1",
+				"type": "Switch",
+				"dependsOn": [
+					{
+						"activity": "UntilCheckStatus",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"on": {
+						"value": "@variables('vTaskStatus')",
+						"type": "Expression"
+					},
+					"cases": [
+						{
+							"value": "RUNNING",
+							"activities": [
+								{
+									"name": "Fail_Time_out",
+									"type": "Fail",
+									"dependsOn": [],
+									"userProperties": [],
+									"typeProperties": {
+										"message": {
+											"value": "@activity('CheckStatus').output",
+											"type": "Expression"
+										},
+										"errorCode": {
+											"value": "@concat('Hyper Connect informatica job timed out. Still running',pipeline().parameters.pHyperConnectTaskName)",
+											"type": "Expression"
+										}
+									}
+								}
+							]
+						},
+						{
+							"value": "SUCCESS",
+							"activities": [
+								{
+									"name": "Web1",
+									"type": "WebActivity",
+									"dependsOn": [],
+									"policy": {
+										"timeout": "7.00:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"url": {
+											"value": "@concat('https://usw3.dm-us.informaticacloud.com/active-bpel/services/tf/status?runId=',variables('vHyperConnectRunID'))",
+											"type": "Expression"
+										},
+										"connectVia": {
+											"referenceName": "AutoResolveIntegrationRuntime",
+											"type": "IntegrationRuntimeReference"
+										},
+										"method": "GET",
+										"disableCertValidation": true,
+										"authentication": {
+											"type": "Basic",
+											"username": {
+												"value": "@pipeline().parameters.pHyperConnectUser",
+												"type": "Expression"
+											},
+											"password": {
+												"type": "AzureKeyVaultSecret",
+												"store": {
+													"referenceName": "lnkAzureKeyVault",
+													"type": "LinkedServiceReference"
+												},
+												"secretName": "HyperconnectADFPwd"
+											}
+										}
+									}
+								}
+							]
+						}
+					],
+					"defaultActivities": [
+						{
+							"name": "Fail_unknown_status",
+							"type": "Fail",
+							"dependsOn": [],
+							"userProperties": [],
+							"typeProperties": {
+								"message": {
+									"value": "@activity('CheckStatus').output",
+									"type": "Expression"
+								},
+								"errorCode": {
+									"value": "@concat('Failed on Execution of Hyperconnect informatica Job ',pipeline().parameters.pHyperConnectTaskName)",
+									"type": "Expression"
+								}
+							}
+						}
+					]
+				}
+			}
+		],
+		"parameters": {
+			"pHyperConnectUser": {
+				"type": "string",
+				"defaultValue": "HyperconnectAgent"
+			},
+			"pHyperConnectTaskName": {
+				"type": "string",
+				"defaultValue": "tf_b_Weekly-DEV "
+			}
+		},
+		"variables": {
+			"vHyperConnectRunID": {
+				"type": "String"
+			},
+			"vTaskStatus": {
+				"type": "String",
+				"defaultValue": "'RUNNING'"
+			}
+		},
+		"folder": {
+			"name": "StatEngine"
+		},
+		"annotations": []
+	}
+}

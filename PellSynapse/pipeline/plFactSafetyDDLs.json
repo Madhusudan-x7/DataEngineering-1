@@ -1,0 +1,106 @@
+{
+	"name": "plFactSafetyDDLs",
+	"properties": {
+		"activities": [
+			{
+				"name": "DDL_fact_behavior_observations",
+				"type": "DatabricksNotebook",
+				"dependsOn": [
+					{
+						"activity": "DDL_fact_safety_occurrence",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"notebookPath": "/SilverToGold/Dev/In-Development/DDL_fact_behavior_observations",
+					"baseParameters": {
+						"CatalogName": "dev_gold",
+						"SchemaName": "edm",
+						"TableName": "fact_behavior_observations",
+						"ReferenceTableName_1": "dim_location",
+						"ReferenceTableName_2": "dim_cost_center"
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "lnkAzureDatabricks",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "DDL_fact_safety_occurrence",
+				"type": "DatabricksNotebook",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"notebookPath": "/SilverToGold/Dev/In-Development/DDL_fact_safety_occurrence",
+					"baseParameters": {
+						"CatalogName": "dev_gold",
+						"SchemaName": "edm",
+						"TableName": "fact_safety_occurrence",
+						"ReferenceTableName_1": "dim_location",
+						"ReferenceTableName_2": "dim_cost_center"
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "lnkAzureDatabricks",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "DDL_fact_labor_hours",
+				"type": "DatabricksNotebook",
+				"dependsOn": [
+					{
+						"activity": "DDL_fact_behavior_observations",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"notebookPath": "/SilverToGold/Dev/In-Development/DDL_fact_labor_hours",
+					"baseParameters": {
+						"CatalogName": "dev_gold",
+						"SchemaName": "edm",
+						"TableName": "fact_labor_hours",
+						"ReferenceTableName_1": "dim_location",
+						"ReferenceTableName_2": "dim_cost_center"
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "lnkAzureDatabricks",
+					"type": "LinkedServiceReference"
+				}
+			}
+		],
+		"folder": {
+			"name": "SilverGold/Safety/factSafety"
+		},
+		"annotations": []
+	}
+}

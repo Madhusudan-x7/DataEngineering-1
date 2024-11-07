@@ -1,0 +1,564 @@
+{
+	"name": "plExtractOracleToStagingADLS",
+	"properties": {
+		"description": "Extract data from oracle (EBS & EDW) and load them Profisee SQL Database. This pipeline will handle Upsert.",
+		"activities": [
+			{
+				"name": "SetCurrentCSTDateTimeForFileName",
+				"description": "Setting up the current datetime that will be used for filename in data lake\n",
+				"type": "SetVariable",
+				"dependsOn": [],
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "varCurrentDateTimeCSTFilename",
+					"value": {
+						"value": "@concat(formatDateTime(convertTimeZone(utcnow(),'UTC','Central Standard Time'),'yyyy_MM_dd_HH_mm_ss'),'_CST')",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "SetCurrentCSTDateTime",
+				"description": "Setting current date time in CST format for setting up watermark for next load",
+				"type": "SetVariable",
+				"dependsOn": [],
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "varCurrentDateTimeCST",
+					"value": {
+						"value": "@formatDateTime(convertTimeZone(utcnow(),'UTC','Central Standard Time'),'yyyy-MM-dd HH:mm:ss')\n",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "Set_YYYYMMDD_Path",
+				"description": "Setting Date path for ADLS folders",
+				"type": "SetVariable",
+				"dependsOn": [],
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "varYYYYMMDD",
+					"value": {
+						"value": "@formatDateTime(convertTimeZone(utcnow(),'UTC','Central Standard Time'),'yyyy/MM/dd')",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "GetOracleTableList",
+				"description": "getting the list of oracle tables (EBS & EDW) from control table stored in Azure SQL",
+				"type": "Lookup",
+				"dependsOn": [
+					{
+						"activity": "SetCurrentCSTDateTimeForFileName",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					},
+					{
+						"activity": "SetCurrentCSTDateTime",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					},
+					{
+						"activity": "Set_YYYYMMDD_Path",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "AzureSqlSource",
+						"sqlReaderQuery": {
+							"value": "select *,convert(varchar,isnull(DeltaLastWatermarkDateTime,'1900-01-01'),120) as FormattedLastWatermarkDateTime \nfrom etl.ControlTableProfisee cts \ninner join etl.LinkedServiceConnectionStore lsc on cts.SourceDatabaseName = lsc.DatabaseName\nwhere cts.SourceType = 'Oracle'\nand (cts.Domain = '@{pipeline().parameters.DomainName}'\nor '@{pipeline().parameters.DomainName}' = 'ALL') AND\n(cts.SourceDatabaseName = '@{pipeline().parameters.SourceDatabaseName}'\nor '@{pipeline().parameters.SourceDatabaseName}' = 'ALL')\nand cts.IsActiveFlag = 'Y'\nand (PipelineTriggerName = '@{pipeline().parameters.PipelineTriggerName}'\nor PipelineTriggerName IS NULL)\norder by seq",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "dsAzureSQLParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pSecretName": {
+								"value": "@pipeline().parameters.pAzureSQLSecretName",
+								"type": "Expression"
+							},
+							"pSchemaName": {
+								"value": "@pipeline().parameters.pAzureSQLSchemaName",
+								"type": "Expression"
+							},
+							"pTableName": {
+								"value": "@pipeline().parameters.pAzureSQLTableName",
+								"type": "Expression"
+							}
+						}
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "IterateOracleSourceTableList",
+				"type": "ForEach",
+				"dependsOn": [
+					{
+						"activity": "GetOracleTableList",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@activity('GetOracleTableList').output.value",
+						"type": "Expression"
+					},
+					"activities": [
+						{
+							"name": "FullDelta",
+							"type": "Switch",
+							"dependsOn": [],
+							"userProperties": [],
+							"typeProperties": {
+								"on": {
+									"value": "@item().SourceExtractMethod",
+									"type": "Expression"
+								},
+								"cases": [
+									{
+										"value": "FULL",
+										"activities": [
+											{
+												"name": "CopyOnPremToADLS",
+												"type": "Copy",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 0,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"source": {
+														"type": "OracleSource",
+														"oracleReaderQuery": {
+															"value": "@item().SourceExtractSQL",
+															"type": "Expression"
+														},
+														"partitionOption": "None",
+														"queryTimeout": "02:00:00"
+													},
+													"sink": {
+														"type": "ParquetSink",
+														"storeSettings": {
+															"type": "AzureBlobFSWriteSettings"
+														},
+														"formatSettings": {
+															"type": "ParquetWriteSettings"
+														}
+													},
+													"enableStaging": false,
+													"translator": {
+														"type": "TabularTranslator",
+														"typeConversion": true,
+														"typeConversionSettings": {
+															"allowDataTruncation": true,
+															"treatBooleanAsNumber": false
+														}
+													}
+												},
+												"inputs": [
+													{
+														"referenceName": "dsOracleParam",
+														"type": "DatasetReference",
+														"parameters": {
+															"pSecretName": {
+																"value": "@item().SourceKeyVaultSecretName",
+																"type": "Expression"
+															},
+															"pSchemaName": {
+																"value": "@item().SourceSchemaName",
+																"type": "Expression"
+															},
+															"pTableName": {
+																"value": "@item().SourceTableName",
+																"type": "Expression"
+															}
+														}
+													}
+												],
+												"outputs": [
+													{
+														"referenceName": "dsADLSParquetParam",
+														"type": "DatasetReference",
+														"parameters": {
+															"pDataLakeContainer": "@item().DataLakeContainer",
+															"pDataLakeDirectory": "@item().DataLakeFolder",
+															"pDataLakeFile": {
+																"value": "@concat(item().DestinationSchemaName,'.',item().DestinationTableName,'.parquet')",
+																"type": "Expression"
+															}
+														}
+													}
+												]
+											},
+											{
+												"name": "LogCopySuccess",
+												"type": "Copy",
+												"dependsOn": [
+													{
+														"activity": "CopyOnPremToADLS",
+														"dependencyConditions": [
+															"Succeeded"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 0,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"source": {
+														"type": "AzureSqlSource",
+														"sqlReaderQuery": {
+															"value": "SELECT '@{pipeline().DataFactory}' as DataFactoryName,\n'@{pipeline().Pipeline}' as PipelineName,\n'@{pipeline().RunId}' as RunId,\n'Oracle_To_DataLake' as SourceToTargetType,\n'@{item().SourceExtractMethod}' as SourceExtractMethod,\n'@{item().SourceFullExtractOverrideFlag}' as SourceFullExtractOverrideFlag,\n'@{item().SourceServerName}' as SourceServerName,\n'@{item().SourceDatabaseName}' as SourceDatabaseName,\n'@{item().SourceSchemaName}' as SourceSchemaName,\n'@{item().SourceTableName}' as SourceTableName,\n'@{item().DataLakeContainer}' as TargetDataLakeContainerName,\n'@{item().DataLakeFolder}' as TargetDirectoryName,\n'@{concat(item().SourceTableName,'.parquet')}' as TargetFileName,\n'@{pipeline().TriggerType}' as TriggerType,\n'@{pipeline().TriggerID}' as TriggerId,\n'@{pipeline().TriggerName}' as TriggerName,\n'@{pipeline().TriggerTime}' as TriggerTime,\n'@{activity('CopyOnPremToADLS').output.rowsCopied}' as RowsCopied,\n'@{activity('CopyOnPremToADLS').output.rowsRead}' as RowsRead,\n'@{activity('CopyOnPremToADLS').output.usedParallelCopies}' as NoParallelCopies,\n'@{activity('CopyOnPremToADLS').output.copyDuration}' as CopyDurationInSecs,\n'@{activity('CopyOnPremToADLS').output.effectiveIntegrationRuntime}' as effectiveIntegrationRuntime,\n'@{activity('CopyOnPremToADLS').output.executionDetails[0].source}' as SourceType,\n'@{activity('CopyOnPremToADLS').output.executionDetails[0].sink}' as SinkType,\n'@{activity('CopyOnPremToADLS').output.executionDetails[0].status}' as ExecutionStatus,\n'@{activity('CopyOnPremToADLS').output.executionDetails[0].start}' as CopyActivityStartTime,\n'@{utcnow()}' as CopyActivityEndTime,\n'@{activity('CopyOnPremToADLS').output.executionDetails[0].detailedDurations.queuingDuration}' as CopyActivityQueuingDurationInSecs,\n'@{activity('CopyOnPremToADLS').output.executionDetails[0].detailedDurations.timeToFirstByte}' as CopyActivityPreCopyScriptDurationInSecs,\n'@{activity('CopyOnPremToADLS').output.executionDetails[0].detailedDurations.transferDuration}' as CopyActivityTransferDurationInSecs,\nnull as ErrorMessage",
+															"type": "Expression"
+														},
+														"queryTimeout": "02:00:00",
+														"partitionOption": "None"
+													},
+													"sink": {
+														"type": "AzureSqlSink"
+													},
+													"enableStaging": false,
+													"translator": {
+														"type": "TabularTranslator",
+														"typeConversion": true,
+														"typeConversionSettings": {
+															"allowDataTruncation": true,
+															"treatBooleanAsNumber": false
+														}
+													}
+												},
+												"inputs": [
+													{
+														"referenceName": "dsAzureSQLParam",
+														"type": "DatasetReference",
+														"parameters": {
+															"pSecretName": {
+																"value": "@pipeline().parameters.pAzureSQLSecretName",
+																"type": "Expression"
+															},
+															"pSchemaName": {
+																"value": "@item().AuditSchemaName",
+																"type": "Expression"
+															},
+															"pTableName": {
+																"value": "@item().AuditTableName",
+																"type": "Expression"
+															}
+														}
+													}
+												],
+												"outputs": [
+													{
+														"referenceName": "dsAzureSQLParam",
+														"type": "DatasetReference",
+														"parameters": {
+															"pSecretName": {
+																"value": "@pipeline().parameters.pAzureSQLSecretName",
+																"type": "Expression"
+															},
+															"pSchemaName": {
+																"value": "@item().AuditSchemaName",
+																"type": "Expression"
+															},
+															"pTableName": {
+																"value": "@item().AuditTableName",
+																"type": "Expression"
+															}
+														}
+													}
+												]
+											},
+											{
+												"name": "LogCopyFailure",
+												"type": "Copy",
+												"dependsOn": [
+													{
+														"activity": "CopyOnPremToADLS",
+														"dependencyConditions": [
+															"Failed"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 0,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"source": {
+														"type": "AzureSqlSource",
+														"sqlReaderQuery": {
+															"value": "SELECT '@{pipeline().DataFactory}' as DataFactoryName,\n'@{pipeline().Pipeline}' as PipelineName,\n'@{pipeline().RunId}' as RunId,\n'Oracle_To_DataLake' as SourceToTargetType,\n'@{item().SourceExtractMethod}' as SourceExtractMethod,\n'@{item().SourceFullExtractOverrideFlag}' as SourceFullExtractOverrideFlag,\n'@{item().SourceServerName}' as SourceServerName,\n'@{item().SourceDatabaseName}' as SourceDatabaseName,\n'@{item().SourceSchemaName}' as SourceSchemaName,\n'@{item().SourceTableName}' as SourceTableName,\n'@{item().DataLakeContainer}' as TargetDataLakeContainerName,\n'@{item().DataLakeFolder}' as TargetDirectoryName,\n'@{concat(item().SourceTableName,'.parquet')}' as TargetFileName,\n'@{pipeline().TriggerType}' as TriggerType,\n'@{pipeline().TriggerID}' as TriggerId,\n'@{pipeline().TriggerName}' as TriggerName,\n'@{pipeline().TriggerTime}' as TriggerTime,\n 0 as RowsCopied,\n'@{activity('CopyOnPremToADLS').output.rowsRead}' as RowsRead,\n'@{activity('CopyOnPremToADLS').output.usedParallelCopies}' as NoParallelCopies,\n'@{activity('CopyOnPremToADLS').output.copyDuration}' as CopyDurationInSecs,\n'@{activity('CopyOnPremToADLS').output.effectiveIntegrationRuntime}' as effectiveIntegrationRuntime,\n'@{activity('CopyOnPremToADLS').output.executionDetails[0].source}' as SourceType,\n'@{activity('CopyOnPremToADLS').output.executionDetails[0].sink}' as SinkType,\n'@{activity('CopyOnPremToADLS').output.executionDetails[0].status}' as ExecutionStatus,\n'@{activity('CopyOnPremToADLS').output.executionDetails[0].start}' as CopyActivityStartTime,\n'@{utcnow()}' as CopyActivityEndTime,\n'@{activity('CopyOnPremToADLS').output.executionDetails[0].detailedDurations.queuingDuration}' as CopyActivityQueuingDurationInSecs,\n'@{activity('CopyOnPremToADLS').output.executionDetails[0].detailedDurations.timeToFirstByte}' as CopyActivityPreCopyScriptDurationInSecs,\n'@{activity('CopyOnPremToADLS').output.executionDetails[0].detailedDurations.transferDuration}' as CopyActivityTransferDurationInSecs,\n '@{replace(activity('CopyOnPremToADLS').output.errors[0].Message,'''','')}' as ErrorMessage",
+															"type": "Expression"
+														},
+														"queryTimeout": "02:00:00",
+														"partitionOption": "None"
+													},
+													"sink": {
+														"type": "AzureSqlSink"
+													},
+													"enableStaging": false,
+													"translator": {
+														"type": "TabularTranslator",
+														"typeConversion": true,
+														"typeConversionSettings": {
+															"allowDataTruncation": true,
+															"treatBooleanAsNumber": false
+														}
+													}
+												},
+												"inputs": [
+													{
+														"referenceName": "dsAzureSQLParam",
+														"type": "DatasetReference",
+														"parameters": {
+															"pSecretName": {
+																"value": "@pipeline().parameters.pAzureSQLSecretName",
+																"type": "Expression"
+															},
+															"pSchemaName": {
+																"value": "@pipeline().parameters.pAzureSQLSchemaName",
+																"type": "Expression"
+															},
+															"pTableName": {
+																"value": "@pipeline().parameters.pAzureSQLTableName",
+																"type": "Expression"
+															}
+														}
+													}
+												],
+												"outputs": [
+													{
+														"referenceName": "dsAzureSQLParam",
+														"type": "DatasetReference",
+														"parameters": {
+															"pSecretName": {
+																"value": "@pipeline().parameters.pAzureSQLSecretName",
+																"type": "Expression"
+															},
+															"pSchemaName": {
+																"value": "@item().AuditSchemaName",
+																"type": "Expression"
+															},
+															"pTableName": {
+																"value": "@item().AuditTableName",
+																"type": "Expression"
+															}
+														}
+													}
+												]
+											}
+										]
+									},
+									{
+										"value": "DELTA",
+										"activities": [
+											{
+												"name": "Delta-TBD",
+												"description": "If Delta is required replace Wait activity  with a Delta Copy Activity",
+												"type": "Wait",
+												"dependsOn": [],
+												"userProperties": [],
+												"typeProperties": {
+													"waitTimeInSeconds": 10
+												}
+											}
+										]
+									}
+								]
+							}
+						},
+						{
+							"name": "UpdateControlTable",
+							"type": "SqlServerStoredProcedure",
+							"dependsOn": [
+								{
+									"activity": "FullDelta",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"storedProcedureName": "etl.UpdateControlTableProfisee",
+								"storedProcedureParameters": {
+									"SourceServerName": {
+										"value": {
+											"value": "@item().SourceServerName",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"SourceDatabaseName": {
+										"value": {
+											"value": "@item().SourceDatabaseName",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"SourceSchemaName": {
+										"value": {
+											"value": "@item().SourceSchemaName",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"SourceTableName": {
+										"value": {
+											"value": "@item().SourceTableName",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"SourceType": {
+										"value": {
+											"value": "@item().SourceType",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"PipelineRunDateTime": {
+										"value": {
+											"value": "@pipeline().TriggerTime",
+											"type": "Expression"
+										},
+										"type": "Datetime"
+									},
+									"WatermarkDateTime": {
+										"value": {
+											"value": "@variables('varCurrentDateTimeCST')",
+											"type": "Expression"
+										},
+										"type": "Datetime"
+									},
+									"SourceExtractMethod": {
+										"value": {
+											"value": "@item().SourceExtractMethod",
+											"type": "Expression"
+										},
+										"type": "String"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "lnkAzureSqlParameterized",
+								"type": "LinkedServiceReference",
+								"parameters": {
+									"SecretName": {
+										"value": "@pipeline().parameters.pAzureSQLSecretName",
+										"type": "Expression"
+									}
+								}
+							}
+						}
+					]
+				}
+			}
+		],
+		"parameters": {
+			"pAzureSQLServerName": {
+				"type": "string",
+				"defaultValue": "sqlsvr-datalake-usc-dev.database.windows.net"
+			},
+			"pAzureSQLDatabaseName": {
+				"type": "string",
+				"defaultValue": "sqldb-dl-control-usc-dev"
+			},
+			"pAzureSQLUserName": {
+				"type": "string",
+				"defaultValue": "DataLake"
+			},
+			"pAzureSQLSecretName": {
+				"type": "string",
+				"defaultValue": "DLSqlCntrlConn"
+			},
+			"pAzureSQLSchemaName": {
+				"type": "string",
+				"defaultValue": "etl"
+			},
+			"pAzureSQLTableName": {
+				"type": "string",
+				"defaultValue": "ControlTableProfisee"
+			},
+			"PipelineTriggerName": {
+				"type": "string",
+				"defaultValue": "trgExtraxctLoadOracleToDataLake_EDW_Dims"
+			},
+			"DomainName": {
+				"type": "string",
+				"defaultValue": "ALL"
+			},
+			"SourceDatabaseName": {
+				"type": "string",
+				"defaultValue": "ALL"
+			}
+		},
+		"variables": {
+			"varCurrentDateTimeCSTFilename": {
+				"type": "String",
+				"defaultValue": "1900-01-01 00:00:00"
+			},
+			"varCurrentDateTimeCST": {
+				"type": "String",
+				"defaultValue": "1900-01-01 00:00:00"
+			},
+			"varExtractMethod": {
+				"type": "String"
+			},
+			"varYYYYMMDD": {
+				"type": "String"
+			},
+			"varQuery": {
+				"type": "String"
+			}
+		},
+		"folder": {
+			"name": "Obsolete/Profisee"
+		},
+		"annotations": [],
+		"lastPublishTime": "2021-10-26T21:39:16Z"
+	},
+	"type": "Microsoft.Synapse/workspaces/pipelines"
+}

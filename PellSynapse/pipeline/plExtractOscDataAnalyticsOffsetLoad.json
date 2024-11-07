@@ -1,0 +1,1120 @@
+{
+	"name": "plExtractOscDataAnalyticsOffsetLoad",
+	"properties": {
+		"activities": [
+			{
+				"name": "GetKeyVaultSecret",
+				"type": "WebActivity",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"method": "GET",
+					"url": {
+						"value": "@pipeline().parameters.pKeyVaultIdPath",
+						"type": "Expression"
+					},
+					"connectVia": {
+						"referenceName": "AutoResolveIntegrationRuntime",
+						"type": "IntegrationRuntimeReference"
+					},
+					"authentication": {
+						"type": "MSI",
+						"resource": "https://vault.azure.net"
+					}
+				}
+			},
+			{
+				"name": "SetAuthToken",
+				"type": "SetVariable",
+				"dependsOn": [
+					{
+						"activity": "GetKeyVaultSecret",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "vAuthToken",
+					"value": {
+						"value": "Basic @{activity('GetKeyVaultSecret').output.value}",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "SetBodyUrl",
+				"type": "SetVariable",
+				"dependsOn": [],
+				"policy": {
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "vBodyUrl",
+					"value": {
+						"value": "@string(pipeline().parameters.pRequestBody)",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "SetFileCurrentDate",
+				"type": "SetVariable",
+				"dependsOn": [],
+				"policy": {
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "vCurrentDate",
+					"value": {
+						"value": "@utcnow()",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "Until",
+				"type": "Until",
+				"dependsOn": [
+					{
+						"activity": "SetAuthToken",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					},
+					{
+						"activity": "SetBodyUrl",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					},
+					{
+						"activity": "SetLandingZonePath",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@less(int(variables('VRecordCount')), int(pipeline().parameters.pPaginationLimit))",
+						"type": "Expression"
+					},
+					"activities": [
+						{
+							"name": "SetSourceFileName",
+							"type": "SetVariable",
+							"dependsOn": [],
+							"policy": {
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "vSourceFileName",
+								"value": {
+									"value": "@concat(pipeline().parameters.pSourceEntityName, variables('vRecordCount'))",
+									"type": "Expression"
+								}
+							}
+						},
+						{
+							"name": "SetRequestBody",
+							"type": "IfCondition",
+							"dependsOn": [
+								{
+									"activity": "LogSucessStatus",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"userProperties": [],
+							"typeProperties": {
+								"expression": {
+									"value": "@equals(string(activity('CopyOscDataReport').output.rowsCopied),pipeline().parameters.pPaginationLimit)",
+									"type": "Expression"
+								},
+								"ifFalseActivities": [
+									{
+										"name": "SetNewOffsetLimitExit",
+										"type": "SetVariable",
+										"dependsOn": [],
+										"policy": {
+											"secureOutput": false,
+											"secureInput": false
+										},
+										"userProperties": [],
+										"typeProperties": {
+											"variableName": "vRecordCount",
+											"value": {
+												"value": "@string(activity('CopyOscDataReport').output.rowsCopied)",
+												"type": "Expression"
+											}
+										}
+									}
+								],
+								"ifTrueActivities": [
+									{
+										"name": "SetCounter",
+										"type": "SetVariable",
+										"dependsOn": [],
+										"policy": {
+											"secureOutput": false,
+											"secureInput": false
+										},
+										"userProperties": [],
+										"typeProperties": {
+											"variableName": "vCounter",
+											"value": {
+												"value": "@string(add(activity('CopyOscDataReport').output.rowsCopied,int(variables('vRecordCount'))))",
+												"type": "Expression"
+											}
+										}
+									},
+									{
+										"name": "SetNewOffsetLimit",
+										"type": "SetVariable",
+										"dependsOn": [
+											{
+												"activity": "SetCounter",
+												"dependencyConditions": [
+													"Succeeded"
+												]
+											}
+										],
+										"policy": {
+											"secureOutput": false,
+											"secureInput": false
+										},
+										"userProperties": [],
+										"typeProperties": {
+											"variableName": "vRecordCount",
+											"value": {
+												"value": "@variables('vCounter')",
+												"type": "Expression"
+											}
+										}
+									},
+									{
+										"name": "UpdateBodyUrl",
+										"type": "SetVariable",
+										"dependsOn": [
+											{
+												"activity": "SetNewOffsetString",
+												"dependencyConditions": [
+													"Succeeded"
+												]
+											}
+										],
+										"policy": {
+											"secureOutput": false,
+											"secureInput": false
+										},
+										"userProperties": [],
+										"typeProperties": {
+											"variableName": "vBodyUrl",
+											"value": {
+												"value": "@replace(string(pipeline().parameters.pRequestBody),'\"offset\":0',variables('vOffsetString'))",
+												"type": "Expression"
+											}
+										}
+									},
+									{
+										"name": "SetNewOffsetString",
+										"type": "SetVariable",
+										"dependsOn": [
+											{
+												"activity": "SetNewOffsetLimit",
+												"dependencyConditions": [
+													"Succeeded"
+												]
+											}
+										],
+										"policy": {
+											"secureOutput": false,
+											"secureInput": false
+										},
+										"userProperties": [],
+										"typeProperties": {
+											"variableName": "vOffsetString",
+											"value": {
+												"value": "@concat('\"offset\"',':',variables('vCounter'))",
+												"type": "Expression"
+											}
+										}
+									}
+								]
+							}
+						},
+						{
+							"name": "CopyOscDataReport",
+							"type": "Copy",
+							"dependsOn": [
+								{
+									"activity": "SetSourceFileName",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"source": {
+									"type": "RestSource",
+									"httpRequestTimeout": "00:01:40",
+									"requestInterval": "00.00:00:00.010",
+									"requestMethod": "POST",
+									"requestBody": {
+										"value": "@variables('vBodyUrl')",
+										"type": "Expression"
+									},
+									"additionalHeaders": {
+										"OSvC-CREST-Application-Context": {
+											"value": "@pipeline().parameters.pApplicationContext",
+											"type": "Expression"
+										},
+										"Authorization": {
+											"value": "@variables('vAuthToken')",
+											"type": "Expression"
+										},
+										"OSvC-CREST-Time-UTC": {
+											"value": "true",
+											"type": "Expression"
+										}
+									},
+									"paginationRules": {
+										"supportRFC5988": "true"
+									}
+								},
+								"sink": {
+									"type": "ParquetSink",
+									"storeSettings": {
+										"type": "AzureBlobFSWriteSettings"
+									},
+									"formatSettings": {
+										"type": "ParquetWriteSettings"
+									}
+								},
+								"enableStaging": false,
+								"translator": {
+									"value": "@pipeline().parameters.pMapping",
+									"type": "Expression"
+								}
+							},
+							"inputs": [
+								{
+									"referenceName": "dsRestAnonymousParam",
+									"type": "DatasetReference",
+									"parameters": {
+										"pPath": {
+											"value": "@pipeline().parameters.pApiUrl",
+											"type": "Expression"
+										},
+										"pBaseUrl": {
+											"value": "@pipeline().parameters.PBaseUrl",
+											"type": "Expression"
+										}
+									}
+								}
+							],
+							"outputs": [
+								{
+									"referenceName": "dsADLSParquetParam",
+									"type": "DatasetReference",
+									"parameters": {
+										"pDataLakeContainer": {
+											"value": "master",
+											"type": "Expression"
+										},
+										"pDataLakeDirectory": {
+											"value": "@concat(pipeline().parameters.pDataLakeDirectory,variables('vLandingZonePath'))",
+											"type": "Expression"
+										},
+										"pDataLakeFile": {
+											"value": "@variables('vSourceFileName')",
+											"type": "Expression"
+										}
+									}
+								}
+							]
+						},
+						{
+							"name": "LogSucessStatus",
+							"type": "Copy",
+							"dependsOn": [
+								{
+									"activity": "CopyOscDataReport",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"source": {
+									"type": "AzureSqlSource",
+									"sqlReaderQuery": {
+										"value": "SELECT \n'@{pipeline().parameters.pTriggerName}' as TriggerName,\n'@{pipeline().parameters.pApiUrl}' as ApiUrl,\n'@{replace(string(pipeline().parameters.pMapping),'''','''''')}' as Mapping,\n'@{pipeline().parameters.pDataLakeDirectory}' as DataLakeDirectory,\n'@{pipeline().parameters.pQueryParam1}' as ParamName1,\n'@{pipeline().parameters.pIgnoreFailFlag}' as IgnoreFailFlag,\n'@{pipeline().parameters.pPrimaryKeyName}' as PrimaryKeyName,\n'@{pipeline().parameters.pSourceExtractMethod}' as SourceExtractMethod\t,\n'@{string(variables('vLandingZonePath'))}' as DataLakeDestinationFolder,\t\n'@{pipeline().parameters.pSourceServiceName}' as SourceServerName,\n'@{pipeline().parameters.pSourceEntityName}' as SourceEntityName,\n'@{pipeline().parameters.pApplicationContext}' as SourceApplicationContext,\n'@{pipeline().parameters.pPaginationLimit}' as PaginationLimit,\n'@{string(variables('vBodyUrl'))}' as RequestBody,\n'@{pipeline().DataFactory}' as DataFactoryName,\n'@{pipeline().Pipeline}' as PipelineName,\n'@{pipeline().RunId}' as RunId,\n'OSC_To_DataLake' as SourceToTargetType,\n'@{pipeline().TriggerType}' as TriggerType,\n'@{pipeline().TriggerId}' as TriggerId,\n'@{pipeline().TriggerTime}' as TriggerTime,\n'@{activity('CopyOscDataReport').output.rowsCopied}' as RowsCopied,\n'@{activity('CopyOscDataReport').output.rowsRead}' as RowsRead,\n'@{activity('CopyOscDataReport').output.usedParallelCopies}' as NoParallelCopies,\n'@{activity('CopyOscDataReport').output.copyDuration}' as CopyDurationInSecs,\n'@{activity('CopyOscDataReport').output.effectiveIntegrationRuntime}' as effectiveIntegrationRuntime,\n'@{activity('CopyOscDataReport').output.executionDetails[0].source.type}' as SourceType,\n'@{activity('CopyOscDataReport').output.executionDetails[0].sink.type}' as SinkType,\n'@{activity('CopyOscDataReport').output.executionDetails[0].status}' as ExecutionStatus,\n'@{activity('CopyOscDataReport').output.executionDetails[0].start}' as CopyActivityStartTime,\n'@{utcNow()}' as CopyActivityEndTime,\n'@{activity('CopyOscDataReport').output.executionDetails[0].detailedDurations.queuingDuration}' as CopyActivityQueuingDurationInSecs,\n'@{activity('CopyOscDataReport').output.executionDetails[0].detailedDurations.timeToFirstByte}' as CopyActivityPreCopyScriptDurationInSecs,\n'@{activity('CopyOscDataReport').output.executionDetails[0].detailedDurations.transferDuration}' as CopyActivityTransferDurationInSecs,\nnull as ErrorMessage",
+										"type": "Expression"
+									},
+									"queryTimeout": "02:00:00",
+									"partitionOption": "None"
+								},
+								"sink": {
+									"type": "AzureSqlSink",
+									"writeBehavior": "insert",
+									"sqlWriterUseTableLock": false
+								},
+								"enableStaging": false,
+								"translator": {
+									"type": "TabularTranslator",
+									"typeConversion": true,
+									"typeConversionSettings": {
+										"allowDataTruncation": true,
+										"treatBooleanAsNumber": false
+									}
+								}
+							},
+							"inputs": [
+								{
+									"referenceName": "dsAzureSQLParam",
+									"type": "DatasetReference",
+									"parameters": {
+										"pSecretName": {
+											"value": "@pipeline().parameters.pAzureSQLSecretName",
+											"type": "Expression"
+										},
+										"pSchemaName": {
+											"value": "@pipeline().parameters.pAzureSQLSchemaName",
+											"type": "Expression"
+										},
+										"pTableName": {
+											"value": "@pipeline().parameters.pAzureSQLTableName",
+											"type": "Expression"
+										}
+									}
+								}
+							],
+							"outputs": [
+								{
+									"referenceName": "dsAzureSQLParam",
+									"type": "DatasetReference",
+									"parameters": {
+										"pSecretName": {
+											"value": "@pipeline().parameters.pAzureSQLSecretName",
+											"type": "Expression"
+										},
+										"pSchemaName": {
+											"value": "@pipeline().parameters.pAzureSQLSchemaName",
+											"type": "Expression"
+										},
+										"pTableName": {
+											"value": "@pipeline().parameters.pAzureSQLTableName",
+											"type": "Expression"
+										}
+									}
+								}
+							]
+						},
+						{
+							"name": "LogFailureStatus",
+							"type": "Copy",
+							"dependsOn": [
+								{
+									"activity": "CopyOscDataReport",
+									"dependencyConditions": [
+										"Failed"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"source": {
+									"type": "AzureSqlSource",
+									"sqlReaderQuery": {
+										"value": "SELECT \n'@{pipeline().parameters.pTriggerName}' as TriggerName,\n'@{pipeline().parameters.pApiUrl}' as ApiUrl,\n'@{replace(string(pipeline().parameters.pMapping),'''','''''')}' as Mapping,\n'@{pipeline().parameters.pDataLakeDirectory}' as DataLakeDirectory,\n'@{pipeline().parameters.pQueryParam1}' as ParamName1,\n'@{pipeline().parameters.pIgnoreFailFlag}' as IgnoreFailFlag,\n'@{pipeline().parameters.pPrimaryKeyName}' as PrimaryKeyName,\n'@{pipeline().parameters.pSourceExtractMethod}' as SourceExtractMethod\t,\n'@{string(variables('vLandingZonePath'))}' as DataLakeDestinationFolder,\t\n'@{pipeline().parameters.pSourceServiceName}' as SourceServerName,\n'@{pipeline().parameters.pSourceEntityName}' as SourceEntityName,\n'@{pipeline().parameters.pApplicationContext}' as SourceApplicationContext,\n'@{pipeline().parameters.pPaginationLimit}' as PaginationLimit,\n'@{string(variables('vBodyUrl'))}' as RequestBody,\n'@{pipeline().DataFactory}' as DataFactoryName,\n'@{pipeline().Pipeline}' as PipelineName,\n'@{pipeline().RunId}' as RunId,\n'OSC_To_DataLake' as SourceToTargetType,\n'@{pipeline().TriggerType}' as TriggerType,\n'@{pipeline().TriggerId}' as TriggerId,\n'@{pipeline().TriggerTime}' as TriggerTime,\n'@{activity('CopyOscDataReport').output.rowsCopied}' as RowsCopied,\n'@{activity('CopyOscDataReport').output.rowsRead}' as RowsRead,\n'@{activity('CopyOscDataReport').output.usedParallelCopies}' as NoParallelCopies,\n'@{activity('CopyOscDataReport').output.copyDuration}' as CopyDurationInSecs,\n'@{activity('CopyOscDataReport').output.effectiveIntegrationRuntime}' as effectiveIntegrationRuntime,\n'@{activity('CopyOscDataReport').output.executionDetails[0].source.type}' as SourceType,\n'@{activity('CopyOscDataReport').output.executionDetails[0].sink.type}' as SinkType,\n'@{activity('CopyOscDataReport').output.executionDetails[0].status}' as ExecutionStatus,\n'@{activity('CopyOscDataReport').output.executionDetails[0].start}' as CopyActivityStartTime,\n'@{utcNow()}' as CopyActivityEndTime,\n'@{activity('CopyOscDataReport').output.executionDetails[0].detailedDurations.queuingDuration}' as CopyActivityQueuingDurationInSecs,\n'@{activity('CopyOscDataReport').output.executionDetails[0].detailedDurations.timeToFirstByte}' as CopyActivityPreCopyScriptDurationInSecs,\n'@{activity('CopyOscDataReport').output.executionDetails[0].detailedDurations.transferDuration}' as CopyActivityTransferDurationInSecs,\n'@{replace(activity('CopyOscDataReport').output.errors[0].Message,'''','')}' as ErrorMessage",
+										"type": "Expression"
+									},
+									"queryTimeout": "02:00:00",
+									"partitionOption": "None"
+								},
+								"sink": {
+									"type": "AzureSqlSink",
+									"writeBehavior": "insert",
+									"sqlWriterUseTableLock": false
+								},
+								"enableStaging": false,
+								"translator": {
+									"type": "TabularTranslator",
+									"typeConversion": true,
+									"typeConversionSettings": {
+										"allowDataTruncation": true,
+										"treatBooleanAsNumber": false
+									}
+								}
+							},
+							"inputs": [
+								{
+									"referenceName": "dsAzureSQLParam",
+									"type": "DatasetReference",
+									"parameters": {
+										"pSecretName": {
+											"value": "@pipeline().parameters.pAzureSQLSecretName",
+											"type": "Expression"
+										},
+										"pSchemaName": {
+											"value": "@pipeline().parameters.pAzureSQLSchemaName",
+											"type": "Expression"
+										},
+										"pTableName": {
+											"value": "@pipeline().parameters.pAzureSQLTableName",
+											"type": "Expression"
+										}
+									}
+								}
+							],
+							"outputs": [
+								{
+									"referenceName": "dsAzureSQLParam",
+									"type": "DatasetReference",
+									"parameters": {
+										"pSecretName": {
+											"value": "@pipeline().parameters.pAzureSQLSecretName",
+											"type": "Expression"
+										},
+										"pSchemaName": {
+											"value": "@pipeline().parameters.pAzureSQLSchemaName",
+											"type": "Expression"
+										},
+										"pTableName": {
+											"value": "@pipeline().parameters.pAzureSQLTableName",
+											"type": "Expression"
+										}
+									}
+								}
+							]
+						},
+						{
+							"name": "SetCounterNext",
+							"type": "SetVariable",
+							"dependsOn": [
+								{
+									"activity": "LogFailureStatus",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "vCounter",
+								"value": {
+									"value": "@string(add(int(pipeline().parameters.pPaginationLimit),int(variables('vRecordCount'))))",
+									"type": "Expression"
+								}
+							}
+						},
+						{
+							"name": "SetNewOffsetLimitNext",
+							"type": "SetVariable",
+							"dependsOn": [
+								{
+									"activity": "SetCounterNext",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "vRecordCount",
+								"value": {
+									"value": "@variables('vCounter')",
+									"type": "Expression"
+								}
+							}
+						},
+						{
+							"name": "UpdateBodyUrlNext",
+							"type": "SetVariable",
+							"dependsOn": [
+								{
+									"activity": "SetNewOffsetStringNext",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "vBodyUrl",
+								"value": {
+									"value": "@replace(string(pipeline().parameters.pRequestBody),'\"offset\":0',variables('vOffsetString'))",
+									"type": "Expression"
+								}
+							}
+						},
+						{
+							"name": "SetNewOffsetStringNext",
+							"type": "SetVariable",
+							"dependsOn": [
+								{
+									"activity": "SetNewOffsetLimitNext",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "vOffsetString",
+								"value": {
+									"value": "@concat('\"offset\"',':',variables('vCounter'))",
+									"type": "Expression"
+								}
+							}
+						}
+					],
+					"timeout": "7.00:00:00"
+				}
+			},
+			{
+				"name": "SetLandingZonePath",
+				"type": "SetVariable",
+				"dependsOn": [
+					{
+						"activity": "SetFileCurrentDate",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "vLandingZonePath",
+					"value": {
+						"value": "@concat('Report','/',pipeline().parameters.pSourceEntityName,'/',concat(formatDateTime(convertTimeZone(variables('vCurrentDate'),'UTC','Central Standard Time'),'yyyy')),'/',concat(formatDateTime(convertTimeZone(variables('vCurrentDate'),'UTC','Central Standard Time'),'MM')),'/',concat(formatDateTime(convertTimeZone(variables('vCurrentDate'),'UTC','Central Standard Time'),'dd_HH_mm_ss')),'/')",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "If Condition",
+				"type": "IfCondition",
+				"dependsOn": [
+					{
+						"activity": "Until",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@equals(pipeline().parameters.pQueryParam1,'LargeReportObjectsFullLoad')",
+						"type": "Expression"
+					},
+					"ifFalseActivities": [
+						{
+							"name": "NotebookDailyLoad",
+							"type": "DatabricksNotebook",
+							"dependsOn": [
+								{
+									"activity": "UpdateControlTableDaily",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"notebookPath": {
+									"value": "@variables('vNotebookPath')",
+									"type": "Expression"
+								},
+								"baseParameters": {
+									"SourceLandingZonePath": {
+										"value": "@variables('vLandingZonePath')",
+										"type": "Expression"
+									},
+									"SourceEntityName": {
+										"value": "@pipeline().parameters.pSourceEntityName",
+										"type": "Expression"
+									},
+									"ZOrderColumnList": {
+										"value": "@pipeline().parameters.pPrimaryKeyName",
+										"type": "Expression"
+									},
+									"SourceServiceName": {
+										"value": "@pipeline().parameters.pSourceServiceName",
+										"type": "Expression"
+									},
+									"CurrentDate": {
+										"value": "@utcNow()",
+										"type": "Expression"
+									},
+									"SourceExtractMethod": {
+										"value": "@pipeline().parameters.pSourceExtractMethod",
+										"type": "Expression"
+									},
+									"UnityCatalogName": {
+										"value": "@pipeline().parameters.pUnityCatalogName",
+										"type": "Expression"
+									},
+									"KeyColumnName": {
+										"value": "@pipeline().parameters.pPrimaryKeyName",
+										"type": "Expression"
+									},
+									"StorageAccountName": {
+										"value": "@pipeline().parameters.pStorageAccountName",
+										"type": "Expression"
+									},
+									"LandingDirName": {
+										"value": "@variables('vLandingDirName')",
+										"type": "Expression"
+									},
+									"BronzeDirName": {
+										"value": "@variables('vBronzeDirName')",
+										"type": "Expression"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "lnkAzureDatabricks",
+								"type": "LinkedServiceReference"
+							}
+						},
+						{
+							"name": "UpdateControlTableDaily",
+							"type": "Script",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"linkedServiceName": {
+								"referenceName": "lnkAzureSqlParameterized",
+								"type": "LinkedServiceReference",
+								"parameters": {
+									"SecretName": "DLSqlCntrlConn"
+								}
+							},
+							"typeProperties": {
+								"scripts": [
+									{
+										"type": "Query",
+										"text": {
+											"value": "UPDATE etl.ControlTableOscToAdls\nSET PipelineLastRunDate = '@{variables('vCurrentDate')}'\nWHERE TriggerName = '@{pipeline().parameters.pTriggerName}'\nAND IsActiveFlag = 'Y'\nAND SourceEntityName = '@{pipeline().parameters.pSourceEntityName}';",
+											"type": "Expression"
+										}
+									}
+								],
+								"scriptBlockExecutionTimeout": "02:00:00"
+							}
+						}
+					],
+					"ifTrueActivities": [
+						{
+							"name": "NotebookOneTime",
+							"type": "DatabricksNotebook",
+							"dependsOn": [
+								{
+									"activity": "UpdateControlTable",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"notebookPath": {
+									"value": "@variables('vNotebookPath')",
+									"type": "Expression"
+								},
+								"baseParameters": {
+									"SourceLandingZonePath": {
+										"value": "@variables('vLandingZonePath')",
+										"type": "Expression"
+									},
+									"SourceEntityName": {
+										"value": "@pipeline().parameters.pSourceEntityName",
+										"type": "Expression"
+									},
+									"ZOrderColumnList": {
+										"value": "@pipeline().parameters.pPrimaryKeyName",
+										"type": "Expression"
+									},
+									"SourceServiceName": {
+										"value": "@pipeline().parameters.pSourceServiceName",
+										"type": "Expression"
+									},
+									"CurrentDate": {
+										"value": "@utcNow()",
+										"type": "Expression"
+									},
+									"SourceExtractMethod": {
+										"value": "@pipeline().parameters.pSourceExtractMethod",
+										"type": "Expression"
+									},
+									"UnityCatalogName": {
+										"value": "@pipeline().parameters.pUnityCatalogName",
+										"type": "Expression"
+									},
+									"KeyColumnName": {
+										"value": "@pipeline().parameters.pPrimaryKeyName",
+										"type": "Expression"
+									},
+									"StorageAccountName": {
+										"value": "@pipeline().parameters.pStorageAccountName",
+										"type": "Expression"
+									},
+									"LandingDirName": {
+										"value": "@variables('vLandingDirName')",
+										"type": "Expression"
+									},
+									"BronzeDirName": {
+										"value": "@variables('vBronzeDirName')",
+										"type": "Expression"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "lnkAzureDatabricks",
+								"type": "LinkedServiceReference"
+							}
+						},
+						{
+							"name": "UpdateControlTable",
+							"type": "Script",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"linkedServiceName": {
+								"referenceName": "lnkAzureSqlParameterized",
+								"type": "LinkedServiceReference",
+								"parameters": {
+									"SecretName": "DLSqlCntrlConn"
+								}
+							},
+							"typeProperties": {
+								"scripts": [
+									{
+										"type": "Query",
+										"text": {
+											"value": "UPDATE etl.ControlTableOscToAdls\nSET PipelineLastRunDate = '@{variables('vCurrentDate')}'\n, IsActiveFlag = 'N'\nWHERE TriggerName = '@{pipeline().parameters.pTriggerName}'\nAND IsActiveFlag = 'Y'\nAND SourceEntityName = '@{pipeline().parameters.pSourceEntityName}';",
+											"type": "Expression"
+										}
+									}
+								],
+								"scriptBlockExecutionTimeout": "02:00:00"
+							}
+						}
+					]
+				}
+			}
+		],
+		"parameters": {
+			"pMapping": {
+				"type": "object",
+				"defaultValue": {
+					"type": "TabularTranslator",
+					"mappings": [
+						{
+							"source": {
+								"path": "[0]"
+							},
+							"sink": {
+								"name": "chan_id",
+								"type": "String"
+							}
+						},
+						{
+							"source": {
+								"path": "[1]"
+							},
+							"sink": {
+								"name": "created_by",
+								"type": "String"
+							}
+						},
+						{
+							"source": {
+								"path": "[2]"
+							},
+							"sink": {
+								"name": "created",
+								"type": "String"
+							}
+						},
+						{
+							"source": {
+								"path": "[3]"
+							},
+							"sink": {
+								"name": "updated",
+								"type": "String"
+							}
+						},
+						{
+							"source": {
+								"path": "[4]"
+							},
+							"sink": {
+								"name": "foreign_key_id",
+								"type": "String"
+							}
+						},
+						{
+							"source": {
+								"path": "[5]"
+							},
+							"sink": {
+								"name": "seq",
+								"type": "String"
+							}
+						},
+						{
+							"source": {
+								"path": "[6]"
+							},
+							"sink": {
+								"name": "tbl",
+								"type": "String"
+							}
+						},
+						{
+							"source": {
+								"path": "[7]"
+							},
+							"sink": {
+								"name": "text",
+								"type": "String"
+							}
+						},
+						{
+							"source": {
+								"path": "[8]"
+							},
+							"sink": {
+								"name": "updated_by",
+								"type": "String"
+							}
+						}
+					],
+					"collectionReference": "$['rows']",
+					"mapComplexValuesToString": true
+				}
+			},
+			"pKeyVaultIdPath": {
+				"type": "string",
+				"defaultValue": "https://kvl-keyvlt-usc-dev.vault.azure.net/secrets/OSCToken/2e409d10ae5e4e3fa7f463cdd4e01b63?api-version=7.0"
+			},
+			"pRequestBody": {
+				"type": "string",
+				"defaultValue": {
+					"id": 106444,
+					"limit": 10000,
+					"offset": 0
+				}
+			},
+			"pApiUrl": {
+				"type": "string",
+				"defaultValue": "/services/rest/connect/v1.4/analyticsReportResults"
+			},
+			"pBaseUrl": {
+				"type": "string",
+				"defaultValue": "https://pella--tst.custhelp.com"
+			},
+			"pApplicationContext": {
+				"type": "string",
+				"defaultValue": "Fetch notes Details"
+			},
+			"pPaginationLimit": {
+				"type": "string",
+				"defaultValue": "10000"
+			},
+			"pDataLakeDirectory": {
+				"type": "string",
+				"defaultValue": "/landing_zone/osc/"
+			},
+			"pSourceEntityName": {
+				"type": "string",
+				"defaultValue": "notes"
+			},
+			"pSourceExtractMethod": {
+				"type": "string",
+				"defaultValue": "APPEND"
+			},
+			"pSourceServiceName": {
+				"type": "string",
+				"defaultValue": "osc"
+			},
+			"pPrimaryKeyName": {
+				"type": "string",
+				"defaultValue": "ID"
+			},
+			"pTriggerName": {
+				"type": "string",
+				"defaultValue": "trgOscNotesTest"
+			},
+			"pAzureSQLSecretName": {
+				"type": "string",
+				"defaultValue": "DLSqlCntrlConn"
+			},
+			"pAzureSQLSchemaName": {
+				"type": "string",
+				"defaultValue": "log"
+			},
+			"pAzureSQLTableName": {
+				"type": "string",
+				"defaultValue": "OscToADLSPipelineRunLogs"
+			},
+			"pIgnoreFailFlag": {
+				"type": "string",
+				"defaultValue": "Y"
+			},
+			"pQueryParam1": {
+				"type": "string",
+				"defaultValue": "LargeReportObjectsFullLoad"
+			},
+			"pUnityCatalogName": {
+				"type": "string",
+				"defaultValue": "dev_bronze"
+			},
+			"pStorageAccountName": {
+				"type": "string",
+				"defaultValue": "stdlalds2uscdev"
+			}
+		},
+		"variables": {
+			"vAuthToken": {
+				"type": "String"
+			},
+			"vRecordCount": {
+				"type": "String",
+				"defaultValue": "0"
+			},
+			"vBodyUrl": {
+				"type": "String"
+			},
+			"vCounter": {
+				"type": "String"
+			},
+			"vSourceFileName": {
+				"type": "String"
+			},
+			"vCurrentDate": {
+				"type": "String"
+			},
+			"vOffsetString": {
+				"type": "String"
+			},
+			"vLandingZonePath": {
+				"type": "String"
+			},
+			"vIgnoreFailFlag": {
+				"type": "String"
+			},
+			"vLandingDirName": {
+				"type": "String",
+				"defaultValue": "landing_zone/osc/"
+			},
+			"vBronzeDirName": {
+				"type": "String",
+				"defaultValue": "bronze/"
+			},
+			"vNotebookPath": {
+				"type": "String",
+				"defaultValue": "/BronzeToSilverDataProcessing/OSC/Load Osc Silver Tables"
+			}
+		},
+		"folder": {
+			"name": "Oracle Service Cloud"
+		},
+		"annotations": []
+	}
+}

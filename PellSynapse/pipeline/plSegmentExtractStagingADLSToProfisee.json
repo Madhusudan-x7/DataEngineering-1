@@ -1,0 +1,793 @@
+{
+	"name": "plSegmentExtractStagingADLSToProfisee",
+	"properties": {
+		"description": "Load data from ADLS TO Profisee Database ",
+		"activities": [
+			{
+				"name": "SetCurrentCSTDateTimeForFileName",
+				"description": "Setting up the current datetime that will be used for filename in data lake\n",
+				"type": "SetVariable",
+				"dependsOn": [],
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "varCurrentDateTimeCSTFilename",
+					"value": {
+						"value": "@concat(formatDateTime(convertTimeZone(utcnow(),'UTC','Central Standard Time'),'yyyy_MM_dd_HH_mm_ss'),'_CST')",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "SetCurrentCSTDateTime",
+				"description": "Setting current date time in CST format for setting up watermark for next load",
+				"type": "SetVariable",
+				"dependsOn": [],
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "varCurrentDateTimeCST",
+					"value": {
+						"value": "@formatDateTime(convertTimeZone(utcnow(),'UTC','Central Standard Time'),'yyyy-MM-dd HH:mm:ss')\n",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "Set_YYYYMMDD_Path",
+				"description": "Setting Date path for ADLS folders",
+				"type": "SetVariable",
+				"dependsOn": [],
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "varYYYYMMDD",
+					"value": {
+						"value": "@formatDateTime(convertTimeZone(utcnow(),'UTC','Central Standard Time'),'yyyy/MM/dd')",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "GetProfiseeTableList",
+				"description": "getting the list of oracle tables (EBS & EDW) from control table stored in Azure SQL",
+				"type": "Lookup",
+				"dependsOn": [
+					{
+						"activity": "SetCurrentCSTDateTimeForFileName",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					},
+					{
+						"activity": "SetCurrentCSTDateTime",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					},
+					{
+						"activity": "Set_YYYYMMDD_Path",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "AzureSqlSource",
+						"sqlReaderQuery": {
+							"value": "select *,convert(varchar,isnull(DeltaLastWatermarkDateTime,'1900-01-01'),120) as FormattedLastWatermarkDateTime \nfrom etl.ControlTableProfisee cts \ninner join etl.LinkedServiceConnectionStore lsc on cts.SourceDatabaseName = lsc.DatabaseName\nwhere cts.SourceType = 'ProfiseeImport'\nand cts.Domain  = 'Segment'\nand cts.IsActiveFlag = 'Y'\nand (PipelineTriggerName = '@{pipeline().parameters.PipelineTriggerName}'\nor PipelineTriggerName is NULL)\norder by seq",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "dsAzureSQLParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pSecretName": {
+								"value": "@pipeline().parameters.pAzureSQLSecretName",
+								"type": "Expression"
+							},
+							"pSchemaName": {
+								"value": "@pipeline().parameters.pAzureSQLSchemaName",
+								"type": "Expression"
+							},
+							"pTableName": {
+								"value": "@pipeline().parameters.pAzureSQLTableName",
+								"type": "Expression"
+							}
+						}
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "IterateProfiseeTableList",
+				"type": "ForEach",
+				"dependsOn": [
+					{
+						"activity": "GetProfiseeTableList",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@activity('GetProfiseeTableList').output.value",
+						"type": "Expression"
+					},
+					"isSequential": true,
+					"activities": [
+						{
+							"name": "SourceTable",
+							"type": "Switch",
+							"dependsOn": [],
+							"userProperties": [],
+							"typeProperties": {
+								"on": {
+									"value": "@item().SourceTableName",
+									"type": "Expression"
+								},
+								"cases": [
+									{
+										"value": "segmentBuildingType",
+										"activities": [
+											{
+												"name": "dfCopyADLSSegmentBuildingTypeToProfisee",
+												"type": "ExecuteDataFlow",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "1.00:00:00",
+													"retry": 0,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"dataflow": {
+														"referenceName": "dfCopySegmentBuildingTypeToProfisee",
+														"type": "DataFlowReference",
+														"parameters": {
+															"PrimaryKey": "'Source_ID'",
+															"Columns": "'Name,Segment'",
+															"pdfADLSFilePath": "'profiseeStaging/edw_ext.segmentBuildingType.parquet'"
+														},
+														"datasetParameters": {
+															"SourceSegmentBuildingTypeParquet": {
+																"pDataLakeContainer": "@item().DataLakeContainer",
+																"pDataLakeDirectory": "@item().DataLakeFolder",
+																"pDataLakeFile": "@concat(item().SourceSchemaName,'.',item().SourceTableName,'.parquet')"
+															},
+															"ProfiseeSourceSegmentBuildingTypeView": {
+																"pServerName": "@item().SourceServerName",
+																"pDatabaseName": "@item().SourceDatabaseName",
+																"pUserName": "@item().SourceUserName",
+																"pSecretName": "@item().SourceKeyVaultSecretName",
+																"pSchemaName": "@item().SourceSchemaView",
+																"pTableName": "@item().SourceViewName"
+															},
+															"SegmentLookupCode": {
+																"pServerName": "@item().SourceServerName",
+																"pDatabaseName": "@item().SourceDatabaseName",
+																"pUserName": "@item().SourceUserName",
+																"pSecretName": "@item().SourceKeyVaultSecretName",
+																"pSchemaName": "@item().SourceSchemaView",
+																"pTableName": "vSegment"
+															},
+															"ProfiseeLineDest": {
+																"pServerName": {
+																	"value": "@item().SourceServerName",
+																	"type": "Expression"
+																},
+																"pDatabaseName": {
+																	"value": "@item().SourceDatabaseName",
+																	"type": "Expression"
+																},
+																"pUserName": {
+																	"value": "@item().SourceUserName",
+																	"type": "Expression"
+																},
+																"pSecretName": {
+																	"value": "@item().SourceKeyVaultSecretName",
+																	"type": "Expression"
+																},
+																"pSchemaName": {
+																	"value": "@item().DestinationSchemaName",
+																	"type": "Expression"
+																},
+																"pTableName": {
+																	"value": "@item().DestinationTableName",
+																	"type": "Expression"
+																}
+															}
+														}
+													},
+													"compute": {
+														"coreCount": 8,
+														"computeType": "General"
+													},
+													"traceLevel": "Coarse"
+												}
+											},
+											{
+												"name": "UpdateControlTable",
+												"type": "SqlServerStoredProcedure",
+												"dependsOn": [
+													{
+														"activity": "Execute Profisee stgStoredProcedure",
+														"dependencyConditions": [
+															"Succeeded"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 0,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"storedProcedureName": "etl.UpdateControlTableProfisee",
+													"storedProcedureParameters": {
+														"SourceServerName": {
+															"value": {
+																"value": "@item().SourceServerName",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"SourceDatabaseName": {
+															"value": {
+																"value": "@item().SourceDatabaseName",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"SourceSchemaName": {
+															"value": {
+																"value": "@item().SourceSchemaName",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"SourceTableName": {
+															"value": {
+																"value": "@item().SourceTableName",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"SourceType": {
+															"value": {
+																"value": "@item().SourceType",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"PipelineRunDateTime": {
+															"value": {
+																"value": "@pipeline().TriggerTime",
+																"type": "Expression"
+															},
+															"type": "Datetime"
+														},
+														"WatermarkDateTime": {
+															"value": {
+																"value": "@variables('varCurrentDateTimeCST')",
+																"type": "Expression"
+															},
+															"type": "Datetime"
+														},
+														"SourceExtractMethod": {
+															"value": {
+																"value": "@item().SourceExtractMethod",
+																"type": "Expression"
+															},
+															"type": "String"
+														}
+													}
+												},
+												"linkedServiceName": {
+													"referenceName": "lnkAzureSqlParameterized",
+													"type": "LinkedServiceReference",
+													"parameters": {
+														"SecretName": {
+															"value": "@pipeline().parameters.pAzureSQLSecretName",
+															"type": "Expression"
+														}
+													}
+												}
+											},
+											{
+												"name": "Execute Profisee stgStoredProcedure",
+												"type": "SqlServerStoredProcedure",
+												"dependsOn": [
+													{
+														"activity": "dfCopyADLSSegmentBuildingTypeToProfisee",
+														"dependencyConditions": [
+															"Succeeded"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 0,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"storedProcedureName": {
+														"value": "@{item().DestinationSchemaName}.@{item().stgStoredProcedure}",
+														"type": "Expression"
+													}
+												},
+												"linkedServiceName": {
+													"referenceName": "lnkSQLProfiseeParameterized",
+													"type": "LinkedServiceReference",
+													"parameters": {
+														"SecretName": {
+															"value": "@item().SourceKeyVaultSecretName",
+															"type": "Expression"
+														}
+													}
+												}
+											}
+										]
+									},
+									{
+										"value": "segment",
+										"activities": [
+											{
+												"name": "Execute Org stgStoredProcedure",
+												"type": "SqlServerStoredProcedure",
+												"dependsOn": [
+													{
+														"activity": "dfCopySegmentToProfisee",
+														"dependencyConditions": [
+															"Succeeded"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 0,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"storedProcedureName": {
+														"value": "@{item().DestinationSchemaName}.@{item().stgStoredProcedure}",
+														"type": "Expression"
+													}
+												},
+												"linkedServiceName": {
+													"referenceName": "lnkSQLProfiseeParameterized",
+													"type": "LinkedServiceReference",
+													"parameters": {
+														"SecretName": {
+															"value": "@item().SourceKeyVaultSecretName",
+															"type": "Expression"
+														}
+													}
+												}
+											},
+											{
+												"name": "Update Org ControlTable",
+												"type": "SqlServerStoredProcedure",
+												"dependsOn": [
+													{
+														"activity": "Execute Org stgStoredProcedure",
+														"dependencyConditions": [
+															"Succeeded"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 0,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"storedProcedureName": "etl.UpdateControlTableProfisee",
+													"storedProcedureParameters": {
+														"SourceServerName": {
+															"value": {
+																"value": "@item().SourceServerName",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"SourceDatabaseName": {
+															"value": {
+																"value": "@item().SourceDatabaseName",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"SourceSchemaName": {
+															"value": {
+																"value": "@item().SourceSchemaName",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"SourceTableName": {
+															"value": {
+																"value": "@item().SourceTableName",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"SourceType": {
+															"value": {
+																"value": "@item().SourceType",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"PipelineRunDateTime": {
+															"value": {
+																"value": "@pipeline().TriggerTime",
+																"type": "Expression"
+															},
+															"type": "Datetime"
+														},
+														"WatermarkDateTime": {
+															"value": {
+																"value": "@variables('varCurrentDateTimeCST')",
+																"type": "Expression"
+															},
+															"type": "Datetime"
+														},
+														"SourceExtractMethod": {
+															"value": {
+																"value": "@item().SourceExtractMethod",
+																"type": "Expression"
+															},
+															"type": "String"
+														}
+													}
+												},
+												"linkedServiceName": {
+													"referenceName": "lnkAzureSqlParameterized",
+													"type": "LinkedServiceReference",
+													"parameters": {
+														"SecretName": {
+															"value": "@pipeline().parameters.pAzureSQLSecretName",
+															"type": "Expression"
+														}
+													}
+												}
+											},
+											{
+												"name": "dfCopySegmentToProfisee",
+												"type": "ExecuteDataFlow",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "1.00:00:00",
+													"retry": 0,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"dataflow": {
+														"referenceName": "dfCopySegmentToProfisee",
+														"type": "DataFlowReference",
+														"parameters": {
+															"PrimaryKey": {
+																"value": "'@{item().DestinationKeyColumnList}'",
+																"type": "Expression"
+															},
+															"Columns": {
+																"value": "'@{item().ColumnsHash}'",
+																"type": "Expression"
+															},
+															"pdfADLSFilePath": {
+																"value": "'@{concat(item().DataLakeFolder,'/',item().SourceSchemaName,'.',item().SourceTableName,'.parquet')}'",
+																"type": "Expression"
+															}
+														},
+														"datasetParameters": {
+															"SourceSegmentParquet": {
+																"pDataLakeContainer": "@item().DataLakeContainer",
+																"pDataLakeDirectory": "@item().DataLakeFolder",
+																"pDataLakeFile": "@concat(item().SourceSchemaName,'.',item().SourceTableName,'.parquet')"
+															},
+															"ProviseeSourceSegmentView": {
+																"pServerName": "@item().SourceServerName",
+																"pDatabaseName": "@item().SourceDatabaseName",
+																"pUserName": "@item().SourceUserName",
+																"pSecretName": "@item().SourceKeyVaultSecretName",
+																"pSchemaName": "@item().SourceSchemaView",
+																"pTableName": "@item().SourceViewName"
+															},
+															"ProfiseeSegmentDestination": {
+																"pSecretName": "@item().SourceKeyVaultSecretName",
+																"pSchemaName": "@item().DestinationSchemaName",
+																"pTableName": "@item().DestinationTableName"
+															}
+														}
+													},
+													"compute": {
+														"coreCount": 8,
+														"computeType": "General"
+													},
+													"traceLevel": "Fine"
+												}
+											}
+										]
+									},
+									{
+										"value": "salesSegment",
+										"activities": [
+											{
+												"name": "dfCopySalesSegmentToProfisee",
+												"type": "ExecuteDataFlow",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "1.00:00:00",
+													"retry": 0,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"dataflow": {
+														"referenceName": "dfCopySalesSegmentToProfisee",
+														"type": "DataFlowReference",
+														"parameters": {
+															"PrimaryKey": "'Source_ID'",
+															"Columns": "'Name,Segment_Building_Type'",
+															"pdfADLSFilePath": "'profiseeStaging/edw_ext.salesSegment.parquet'"
+														},
+														"datasetParameters": {
+															"SourceSalesSegmentParquet": {
+																"pDataLakeContainer": "@item().DataLakeContainer",
+																"pDataLakeDirectory": "@item().DataLakeFolder",
+																"pDataLakeFile": "@concat(item().SourceSchemaName,'.',item().SourceTableName,'.parquet')"
+															},
+															"ProviseeSourceSalesSegmentView": {
+																"pServerName": "@item().SourceServerName",
+																"pDatabaseName": "@item().SourceDatabaseName",
+																"pUserName": "@item().SourceUserName",
+																"pSecretName": "@item().SourceKeyVaultSecretName",
+																"pSchemaName": "@item().SourceSchemaView",
+																"pTableName": "@item().SourceViewName"
+															},
+															"SegmentBuildingTypeLookupCode": {
+																"pServerName": "@item().SourceServerName",
+																"pDatabaseName": "@item().SourceDatabaseName",
+																"pUserName": "@item().SourceUserName",
+																"pSecretName": "@item().SourceKeyVaultSecretName",
+																"pSchemaName": "@item().SourceSchemaView",
+																"pTableName": "vSegmentBuildingType"
+															},
+															"ProfiseeSalesSegmentDest": {
+																"pServerName": "@item().SourceServerName",
+																"pDatabaseName": "@item().SourceDatabaseName",
+																"pUserName": "@item().SourceUserName",
+																"pSecretName": "@item().SourceKeyVaultSecretName",
+																"pSchemaName": "@item().DestinationSchemaName",
+																"pTableName": "@item().DestinationTableName"
+															}
+														}
+													},
+													"compute": {
+														"coreCount": 8,
+														"computeType": "General"
+													},
+													"traceLevel": "Fine"
+												}
+											},
+											{
+												"name": "UpdateControlTable_copy1",
+												"type": "SqlServerStoredProcedure",
+												"dependsOn": [
+													{
+														"activity": "Execute Profisee stgStoredProcedure_copy1",
+														"dependencyConditions": [
+															"Succeeded"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 0,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"storedProcedureName": "etl.UpdateControlTableProfisee",
+													"storedProcedureParameters": {
+														"SourceServerName": {
+															"value": {
+																"value": "@item().SourceServerName",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"SourceDatabaseName": {
+															"value": {
+																"value": "@item().SourceDatabaseName",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"SourceSchemaName": {
+															"value": {
+																"value": "@item().SourceSchemaName",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"SourceTableName": {
+															"value": {
+																"value": "@item().SourceTableName",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"SourceType": {
+															"value": {
+																"value": "@item().SourceType",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"PipelineRunDateTime": {
+															"value": {
+																"value": "@pipeline().TriggerTime",
+																"type": "Expression"
+															},
+															"type": "Datetime"
+														},
+														"WatermarkDateTime": {
+															"value": {
+																"value": "@variables('varCurrentDateTimeCST')",
+																"type": "Expression"
+															},
+															"type": "Datetime"
+														},
+														"SourceExtractMethod": {
+															"value": {
+																"value": "@item().SourceExtractMethod",
+																"type": "Expression"
+															},
+															"type": "String"
+														}
+													}
+												},
+												"linkedServiceName": {
+													"referenceName": "lnkAzureSqlParameterized",
+													"type": "LinkedServiceReference",
+													"parameters": {
+														"SecretName": {
+															"value": "@pipeline().parameters.pAzureSQLSecretName",
+															"type": "Expression"
+														}
+													}
+												}
+											},
+											{
+												"name": "Execute Profisee stgStoredProcedure_copy1",
+												"type": "SqlServerStoredProcedure",
+												"dependsOn": [
+													{
+														"activity": "dfCopySalesSegmentToProfisee",
+														"dependencyConditions": [
+															"Succeeded"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 0,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"storedProcedureName": {
+														"value": "@{item().DestinationSchemaName}.@{item().stgStoredProcedure}",
+														"type": "Expression"
+													}
+												},
+												"linkedServiceName": {
+													"referenceName": "lnkSQLProfiseeParameterized",
+													"type": "LinkedServiceReference",
+													"parameters": {
+														"SecretName": {
+															"value": "@item().SourceKeyVaultSecretName",
+															"type": "Expression"
+														}
+													}
+												}
+											}
+										]
+									}
+								]
+							}
+						}
+					]
+				}
+			}
+		],
+		"parameters": {
+			"pAzureSQLServerName": {
+				"type": "string",
+				"defaultValue": "sqlsvr-datalake-usc-dev.database.windows.net"
+			},
+			"pAzureSQLDatabaseName": {
+				"type": "string",
+				"defaultValue": "sqldb-dl-control-usc-dev"
+			},
+			"pAzureSQLUserName": {
+				"type": "string",
+				"defaultValue": "DataLake"
+			},
+			"pAzureSQLSecretName": {
+				"type": "string",
+				"defaultValue": "DLSqlCntrlConn"
+			},
+			"pAzureSQLSchemaName": {
+				"type": "string",
+				"defaultValue": "etl"
+			},
+			"pAzureSQLTableName": {
+				"type": "string",
+				"defaultValue": "ControlTableProfisee"
+			},
+			"PipelineTriggerName": {
+				"type": "string",
+				"defaultValue": "NULL"
+			}
+		},
+		"variables": {
+			"varCurrentDateTimeCSTFilename": {
+				"type": "String",
+				"defaultValue": "1900-01-01 00:00:00"
+			},
+			"varCurrentDateTimeCST": {
+				"type": "String",
+				"defaultValue": "1900-01-01 00:00:00"
+			},
+			"varExtractMethod": {
+				"type": "String"
+			},
+			"varYYYYMMDD": {
+				"type": "String"
+			}
+		},
+		"folder": {
+			"name": "Obsolete/Profisee"
+		},
+		"annotations": [],
+		"lastPublishTime": "2021-10-26T21:39:19Z"
+	},
+	"type": "Microsoft.Synapse/workspaces/pipelines"
+}

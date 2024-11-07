@@ -1,0 +1,208 @@
+{
+	"name": "plOTShippingDOW",
+	"properties": {
+		"activities": [
+			{
+				"name": "Copy data from EBS To AZURE Presentation",
+				"type": "Copy",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "OracleSource",
+						"partitionOption": "None",
+						"queryTimeout": "02:00:00"
+					},
+					"sink": {
+						"type": "AzureSqlSink",
+						"preCopyScript": "TRUNCATE TABLE orders.ShippingDayOfWeekLookup",
+						"writeBehavior": "insert",
+						"sqlWriterUseTableLock": true,
+						"disableMetricsCollection": false
+					},
+					"enableStaging": false,
+					"translator": {
+						"type": "TabularTranslator",
+						"mappings": [
+							{
+								"source": {
+									"name": "ACCOUNT_NUMBER",
+									"type": "String"
+								},
+								"sink": {
+									"name": "CustomerDestination",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "SHIP_FROM",
+									"type": "String"
+								},
+								"sink": {
+									"name": "WmsWarehouseOrgCode",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "SHIPTO_TYPE",
+									"type": "String"
+								},
+								"sink": {
+									"name": "CustomerClassCode",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "SHIP_SUNDAY",
+									"type": "Double"
+								},
+								"sink": {
+									"name": "SundayShipFlag",
+									"type": "Byte",
+									"physicalType": "tinyint"
+								}
+							},
+							{
+								"source": {
+									"name": "SHIP_MONDAY",
+									"type": "Double"
+								},
+								"sink": {
+									"name": "MondayShipFlag",
+									"type": "Byte",
+									"physicalType": "tinyint"
+								}
+							},
+							{
+								"source": {
+									"name": "SHIP_TUESDAY",
+									"type": "Double"
+								},
+								"sink": {
+									"name": "TuesdayShipFlag",
+									"type": "Byte",
+									"physicalType": "tinyint"
+								}
+							},
+							{
+								"source": {
+									"name": "SHIP_WEDNESDAY",
+									"type": "Double"
+								},
+								"sink": {
+									"name": "WednesdayShipFlag",
+									"type": "Byte",
+									"physicalType": "tinyint"
+								}
+							},
+							{
+								"source": {
+									"name": "SHIP_THURSDAY",
+									"type": "Double"
+								},
+								"sink": {
+									"name": "ThursdayShipFlag",
+									"type": "Byte",
+									"physicalType": "tinyint"
+								}
+							},
+							{
+								"source": {
+									"name": "SHIP_FRIDAY",
+									"type": "Double"
+								},
+								"sink": {
+									"name": "FridayShipFlag",
+									"type": "Byte",
+									"physicalType": "tinyint"
+								}
+							},
+							{
+								"source": {
+									"name": "SHIP_SATURDAY",
+									"type": "Double"
+								},
+								"sink": {
+									"name": "SaturdayShipFlag",
+									"type": "Byte",
+									"physicalType": "tinyint"
+								}
+							},
+							{
+								"source": {
+									"name": "TRAVEL_DAYS",
+									"type": "Double"
+								},
+								"sink": {
+									"name": "TransitDaysFromWarehouseToCustomer",
+									"type": "Int16",
+									"physicalType": "smallint"
+								}
+							}
+						],
+						"typeConversion": true,
+						"typeConversionSettings": {
+							"allowDataTruncation": true,
+							"treatBooleanAsNumber": false
+						}
+					}
+				},
+				"inputs": [
+					{
+						"referenceName": "dsOracleParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pSecretName": {
+								"value": "@pipeline().parameters.pOracleSecret",
+								"type": "Expression"
+							},
+							"pSchemaName": "PELLA",
+							"pTableName": "PEL_CUSTOMER_SHIP_DATE_TBL"
+						}
+					}
+				],
+				"outputs": [
+					{
+						"referenceName": "dsAzureSQLParamAutoIR",
+						"type": "DatasetReference",
+						"parameters": {
+							"pSecretName": {
+								"value": "@pipeline().parameters.pAZURESQLSecret",
+								"type": "Expression"
+							},
+							"pSchemaName": "orders",
+							"pTableName": "ShippingDayOfWeekLookup"
+						}
+					}
+				]
+			}
+		],
+		"parameters": {
+			"pOracleSecret": {
+				"type": "string",
+				"defaultValue": "OracleErpConn"
+			},
+			"pAZURESQLSecret": {
+				"type": "string",
+				"defaultValue": "OTMLConn"
+			}
+		},
+		"folder": {
+			"name": "OrderTransparency"
+		},
+		"annotations": []
+	}
+}

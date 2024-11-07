@@ -1,0 +1,873 @@
+{
+	"name": "plLoadSalesforceToDataLake",
+	"properties": {
+		"activities": [
+			{
+				"name": "ForEachObject",
+				"type": "ForEach",
+				"dependsOn": [
+					{
+						"activity": "SetCurrentTime",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@activity('ControlTableLookup').output.value",
+						"type": "Expression"
+					},
+					"isSequential": false,
+					"activities": [
+						{
+							"name": "ExtractionMethod",
+							"type": "Switch",
+							"dependsOn": [],
+							"userProperties": [],
+							"typeProperties": {
+								"on": {
+									"value": "@toUpper(item().SourceExtractMethod)",
+									"type": "Expression"
+								},
+								"cases": [
+									{
+										"value": "FULL",
+										"activities": [
+											{
+												"name": "CopySalesforceObject",
+												"type": "Copy",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "0.12:00:00",
+													"retry": 1,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"source": {
+														"type": "SalesforceSource",
+														"query": {
+															"value": "SELECT * FROM @{item().SourceTableName}",
+															"type": "Expression"
+														},
+														"readBehavior": "query"
+													},
+													"sink": {
+														"type": "ParquetSink",
+														"storeSettings": {
+															"type": "AzureBlobFSWriteSettings"
+														},
+														"formatSettings": {
+															"type": "ParquetWriteSettings"
+														}
+													},
+													"enableStaging": false,
+													"translator": {
+														"type": "TabularTranslator",
+														"typeConversion": true,
+														"typeConversionSettings": {
+															"allowDataTruncation": true,
+															"treatBooleanAsNumber": false
+														}
+													}
+												},
+												"inputs": [
+													{
+														"referenceName": "dsSalesForceParam",
+														"type": "DatasetReference",
+														"parameters": {
+															"pSalesforceUrl": {
+																"value": "@pipeline().parameters.pSalesforceUrl",
+																"type": "Expression"
+															},
+															"pSalesforceUser": {
+																"value": "@pipeline().parameters.pSalesforceUser",
+																"type": "Expression"
+															},
+															"pSalesforcePwd": {
+																"value": "@pipeline().parameters.pSalesforcePwdKvName",
+																"type": "Expression"
+															},
+															"pSalesforceSecret": {
+																"value": "@pipeline().parameters.pSalesforceSecretKvName",
+																"type": "Expression"
+															},
+															"pApiVersion": {
+																"value": "@pipeline().parameters.pSalesforceApiVersion",
+																"type": "Expression"
+															}
+														}
+													}
+												],
+												"outputs": [
+													{
+														"referenceName": "dsADLSParquetParam",
+														"type": "DatasetReference",
+														"parameters": {
+															"pDataLakeContainer": {
+																"value": "@item().DataLakeDestinationContainer",
+																"type": "Expression"
+															},
+															"pDataLakeDirectory": {
+																"value": "@{item().DataLakeDestinationFolder}/@{item().SourceExtractMethod}",
+																"type": "Expression"
+															},
+															"pDataLakeFile": {
+																"value": "/@{item().SourceTableName}/@{formatDateTime(variables('vCurrentTime'), 'yyyy/MM/dd/HH/mm')}/@{item().SourceTableName}Data",
+																"type": "Expression"
+															}
+														}
+													}
+												]
+											},
+											{
+												"name": "LogCopySuccess",
+												"type": "Copy",
+												"dependsOn": [
+													{
+														"activity": "CopySalesforceObject",
+														"dependencyConditions": [
+															"Succeeded"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "0.12:00:00",
+													"retry": 0,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"source": {
+														"type": "AzureSqlSource",
+														"sqlReaderQuery": {
+															"value": "SELECT '@{pipeline().DataFactory}' as DataFactoryName,\n'@{pipeline().Pipeline}' as PipelineName,\n'@{pipeline().RunId}' as RunId,\n'Salesforce_To_DataLake' as SourceToTargetType,\n\n\n'@{item().SourceTableName}' as ObjectName,\n'@{variables('vBronzeNotebookPath')}' as BronzeNotebookPath,\n'@{item().DeltaLastWatermarkDateTime}' as StartDate,\n'@{item().SourceKeyColumnList}' as ZOrderColumnList,\n'@{item().SourceDatabaseName}' as ServiceName,\n'@{item().IsActiveFlag}' as IsActive,\n'@{replace(item().SourceExtractSql, '''', '''''')}' as SourceExtractSql,\n'@{item().HistoricalDataLoadStartDate}' as HistoricalDataLoadStartDate,\n'@{item().DeltaUpdateWatermarkColumnName}' as DeltaUpdateWatermarkColumn,\n'@{item().SourceExtractMethod}' as SourceExtractMethod,\n'@{item().PipelineLastRunDateTime}' as LastUpdateDate,\n\n\n'@{pipeline().TriggerType}' as TriggerType,\n'@{pipeline().TriggerID}' as TriggerId,\n'@{pipeline().TriggerName}' as TriggerName,\n'@{pipeline().TriggerTime}' as TriggerTime,\n'@{activity('CopySalesforceObject').output.rowsCopied}' as RowsCopied,\n'@{activity('CopySalesforceObject').output.rowsRead}' as RowsRead,\n'@{activity('CopySalesforceObject').output.usedParallelCopies}' as NoParallelCopies,\n'@{activity('CopySalesforceObject').output.copyDuration}' as CopyDurationInSecs,\n'@{activity('CopySalesforceObject').output.effectiveIntegrationRuntime}' as effectiveIntegrationRuntime,\n'@{activity('CopySalesforceObject').output.executionDetails[0].source}' as SourceType,\n'@{activity('CopySalesforceObject').output.executionDetails[0].sink}' as SinkType,\n'@{activity('CopySalesforceObject').output.executionDetails[0].status}' as ExecutionStatus,\n'@{activity('CopySalesforceObject').output.executionDetails[0].start}' as CopyActivityStartTime,\n'@{utcnow()}' as CopyActivityEndTime,\n'@{activity('CopySalesforceObject').output.executionDetails[0].detailedDurations.queuingDuration}' as CopyActivityQueuingDurationInSecs,\n'@{activity('CopySalesforceObject').output.executionDetails[0].detailedDurations.timeToFirstByte}' as CopyActivityPreCopyScriptDurationInSecs,\n'@{activity('CopySalesforceObject').output.executionDetails[0].detailedDurations.transferDuration}' as CopyActivityTransferDurationInSecs,\nnull as ErrorMessage",
+															"type": "Expression"
+														},
+														"queryTimeout": "02:00:00",
+														"partitionOption": "None"
+													},
+													"sink": {
+														"type": "AzureSqlSink",
+														"writeBehavior": "insert",
+														"sqlWriterUseTableLock": false
+													},
+													"enableStaging": false,
+													"translator": {
+														"type": "TabularTranslator",
+														"typeConversion": true,
+														"typeConversionSettings": {
+															"allowDataTruncation": true,
+															"treatBooleanAsNumber": false
+														}
+													}
+												},
+												"inputs": [
+													{
+														"referenceName": "dsAzureSQLParam",
+														"type": "DatasetReference",
+														"parameters": {
+															"pSecretName": {
+																"value": "@pipeline().parameters.pAzureSQLSecretName",
+																"type": "Expression"
+															},
+															"pSchemaName": {
+																"value": "etl",
+																"type": "Expression"
+															},
+															"pTableName": {
+																"value": "ControlTableSourceToAdls",
+																"type": "Expression"
+															}
+														}
+													}
+												],
+												"outputs": [
+													{
+														"referenceName": "dsAzureSQLParam",
+														"type": "DatasetReference",
+														"parameters": {
+															"pSecretName": {
+																"value": "@pipeline().parameters.pAzureSQLSecretName",
+																"type": "Expression"
+															},
+															"pSchemaName": {
+																"value": "@item().AuditSchemaName",
+																"type": "Expression"
+															},
+															"pTableName": {
+																"value": "@item().AuditTableName",
+																"type": "Expression"
+															}
+														}
+													}
+												]
+											},
+											{
+												"name": "LogCopyFailure",
+												"type": "Copy",
+												"dependsOn": [
+													{
+														"activity": "CopySalesforceObject",
+														"dependencyConditions": [
+															"Failed"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "0.12:00:00",
+													"retry": 0,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"source": {
+														"type": "AzureSqlSource",
+														"sqlReaderQuery": {
+															"value": "SELECT '@{pipeline().DataFactory}' as DataFactoryName,\n'@{pipeline().Pipeline}' as PipelineName,\n'@{pipeline().RunId}' as RunId,\n'Salesforce_To_DataLake' as SourceToTargetType,\n\n\n'@{item().SourceTableName}' as ObjectName,\n'@{variables('vBronzeNotebookPath')}' as BronzeNotebookPath,\n'@{item().DeltaLastWatermarkDateTime}' as StartDate,\n'@{item().SourceKeyColumnList}' as ZOrderColumnList,\n'@{item().SourceDatabaseName}' as ServiceName,\n'@{item().IsActiveFlag}' as IsActive,\n'@{replace(item().SourceExtractSql, '''', '''''')}' as SourceExtractSql,\n'@{item().HistoricalDataLoadStartDate}' as HistoricalDataLoadStartDate,\n'@{item().DeltaUpdateWatermarkColumnName}' as DeltaUpdateWatermarkColumn,\n'@{item().SourceExtractMethod}' as SourceExtractMethod,\n'@{item().PipelineLastRunDateTime}' as LastUpdateDate,\n\n\n\n'@{pipeline().TriggerType}' as TriggerType,\n'@{pipeline().TriggerID}' as TriggerId,\n'@{pipeline().TriggerName}' as TriggerName,\n'@{pipeline().TriggerTime}' as TriggerTime,\n'@{activity('CopySalesforceObject').output.rowsCopied}' as RowsCopied,\n'@{activity('CopySalesforceObject').output.rowsRead}' as RowsRead,\n'@{activity('CopySalesforceObject').output.usedParallelCopies}' as NoParallelCopies,\n'@{activity('CopySalesforceObject').output.copyDuration}' as CopyDurationInSecs,\n'@{activity('CopySalesforceObject').output.effectiveIntegrationRuntime}' as effectiveIntegrationRuntime,\n'@{activity('CopySalesforceObject').output.executionDetails[0].source}' as SourceType,\n'@{activity('CopySalesforceObject').output.executionDetails[0].sink}' as SinkType,\n'@{activity('CopySalesforceObject').output.executionDetails[0].status}' as ExecutionStatus,\n'@{activity('CopySalesforceObject').output.executionDetails[0].start}' as CopyActivityStartTime,\n'@{utcnow()}' as CopyActivityEndTime,\n'@{activity('CopySalesforceObject').output.executionDetails[0].detailedDurations.queuingDuration}' as CopyActivityQueuingDurationInSecs,\n'@{activity('CopySalesforceObject').output.executionDetails[0].detailedDurations.timeToFirstByte}' as CopyActivityPreCopyScriptDurationInSecs,\n'@{activity('CopySalesforceObject').output.executionDetails[0].detailedDurations.transferDuration}' as CopyActivityTransferDurationInSecs,\n'@{replace(activity('CopySalesforceObject').output.errors[0].Message,'''','')}' as ErrorMessage",
+															"type": "Expression"
+														},
+														"queryTimeout": "02:00:00",
+														"partitionOption": "None"
+													},
+													"sink": {
+														"type": "AzureSqlSink",
+														"writeBehavior": "insert",
+														"sqlWriterUseTableLock": false
+													},
+													"enableStaging": false,
+													"translator": {
+														"type": "TabularTranslator",
+														"typeConversion": true,
+														"typeConversionSettings": {
+															"allowDataTruncation": true,
+															"treatBooleanAsNumber": false
+														}
+													}
+												},
+												"inputs": [
+													{
+														"referenceName": "dsAzureSQLParam",
+														"type": "DatasetReference",
+														"parameters": {
+															"pSecretName": {
+																"value": "@pipeline().parameters.pAzureSQLSecretName",
+																"type": "Expression"
+															},
+															"pSchemaName": {
+																"value": "etl",
+																"type": "Expression"
+															},
+															"pTableName": {
+																"value": "ControlTableSourceToAdls",
+																"type": "Expression"
+															}
+														}
+													}
+												],
+												"outputs": [
+													{
+														"referenceName": "dsAzureSQLParam",
+														"type": "DatasetReference",
+														"parameters": {
+															"pSecretName": {
+																"value": "@pipeline().parameters.pAzureSQLSecretName",
+																"type": "Expression"
+															},
+															"pSchemaName": {
+																"value": "@item().AuditSchemaName",
+																"type": "Expression"
+															},
+															"pTableName": {
+																"value": "@item().AuditTableName",
+																"type": "Expression"
+															}
+														}
+													}
+												]
+											},
+											{
+												"name": "LoadDeltaLakeDelta",
+												"type": "DatabricksNotebook",
+												"dependsOn": [
+													{
+														"activity": "LogCopySuccess",
+														"dependencyConditions": [
+															"Succeeded"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "0.12:00:00",
+													"retry": 0,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"notebookPath": {
+														"value": "@variables('vBronzeNotebookPath')",
+														"type": "Expression"
+													},
+													"baseParameters": {
+														"SourceKeyColumnList": {
+															"value": "@item().SourceKeyColumnList",
+															"type": "Expression"
+														},
+														"SourceObjectPath": {
+															"value": "@{item().DataLakeDestinationFolder}/@{item().SourceExtractMethod}/@{item().SourceTableName}/@{formatDateTime(variables('vCurrentTime'), 'yyyy/MM/dd/HH/mm')}/@{item().SourceTableName}Data",
+															"type": "Expression"
+														},
+														"SourceObjectName": {
+															"value": "@item().SourceTableName",
+															"type": "Expression"
+														},
+														"SourceSystemName": {
+															"value": "@item().SourceDatabaseName",
+															"type": "Expression"
+														},
+														"SourceSchemaName": {
+															"value": "@item().DeltaUpdateWatermarkColumnName",
+															"type": "Expression"
+														},
+														"SourceExtractMethod": {
+															"value": "@item().SourceExtractMethod",
+															"type": "Expression"
+														},
+														"DeltaUpdateWatermarkColumnName": {
+															"value": "@item().DeltaUpdateWatermarkColumnName",
+															"type": "Expression"
+														},
+														"UnityCatalogName": {
+															"value": "@item().UnityCatalogName",
+															"type": "Expression"
+														},
+														"DataLakeDestinationContainer": {
+															"value": "@item().DataLakeDestinationContainer",
+															"type": "Expression"
+														},
+														"StorageAccountName": {
+															"value": "@item().StorageAccountName",
+															"type": "Expression"
+														},
+														"BronzeFolderName": {
+															"value": "@variables('vBronzeFolderName')",
+															"type": "Expression"
+														}
+													}
+												},
+												"linkedServiceName": {
+													"referenceName": "lnkAzureDatabricks",
+													"type": "LinkedServiceReference"
+												}
+											}
+										]
+									},
+									{
+										"value": "DELTA",
+										"activities": [
+											{
+												"name": "CopySalesforceObjectDelta",
+												"type": "Copy",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "0.12:00:00",
+													"retry": 1,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"source": {
+														"type": "SalesforceSource",
+														"query": {
+															"value": "SELECT * FROM @{item().SourceTableName} WHERE @{item().DeltaUpdateWatermarkColumnName} > '@{formatDateTime(item().DeltaLastWatermarkDateTime,'yyyy-MM-dd HH:mm:ss')}' \nAND @{item().DeltaUpdateWatermarkColumnName} <= '@{variables('vCurrentTime')}'",
+															"type": "Expression"
+														},
+														"readBehavior": "query"
+													},
+													"sink": {
+														"type": "ParquetSink",
+														"storeSettings": {
+															"type": "AzureBlobFSWriteSettings"
+														},
+														"formatSettings": {
+															"type": "ParquetWriteSettings"
+														}
+													},
+													"enableStaging": false,
+													"translator": {
+														"type": "TabularTranslator",
+														"typeConversion": true,
+														"typeConversionSettings": {
+															"allowDataTruncation": true,
+															"treatBooleanAsNumber": false
+														}
+													}
+												},
+												"inputs": [
+													{
+														"referenceName": "dsSalesForceParam",
+														"type": "DatasetReference",
+														"parameters": {
+															"pSalesforceUrl": {
+																"value": "@pipeline().parameters.pSalesforceUrl",
+																"type": "Expression"
+															},
+															"pSalesforceUser": {
+																"value": "@pipeline().parameters.pSalesforceUser",
+																"type": "Expression"
+															},
+															"pSalesforcePwd": {
+																"value": "@pipeline().parameters.pSalesforcePwdKvName",
+																"type": "Expression"
+															},
+															"pSalesforceSecret": {
+																"value": "@pipeline().parameters.pSalesforceSecretKvName",
+																"type": "Expression"
+															},
+															"pApiVersion": {
+																"value": "@pipeline().parameters.pSalesforceApiVersion",
+																"type": "Expression"
+															}
+														}
+													}
+												],
+												"outputs": [
+													{
+														"referenceName": "dsADLSParquetParam",
+														"type": "DatasetReference",
+														"parameters": {
+															"pDataLakeContainer": {
+																"value": "@item().DataLakeDestinationContainer",
+																"type": "Expression"
+															},
+															"pDataLakeDirectory": {
+																"value": "@{item().DataLakeDestinationFolder}/@{item().SourceExtractMethod}",
+																"type": "Expression"
+															},
+															"pDataLakeFile": {
+																"value": "/@{item().SourceTableName}/@{formatDateTime(variables('vCurrentTime'), 'yyyy/MM/dd/HH/mm')}/@{item().SourceTableName}Data",
+																"type": "Expression"
+															}
+														}
+													}
+												]
+											},
+											{
+												"name": "LogCopySuccessDelta",
+												"type": "Copy",
+												"dependsOn": [
+													{
+														"activity": "CopySalesforceObjectDelta",
+														"dependencyConditions": [
+															"Succeeded"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "0.12:00:00",
+													"retry": 0,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"source": {
+														"type": "AzureSqlSource",
+														"sqlReaderQuery": {
+															"value": "SELECT '@{pipeline().DataFactory}' as DataFactoryName,\n'@{pipeline().Pipeline}' as PipelineName,\n'@{pipeline().RunId}' as RunId,\n'Salesforce_To_DataLake' as SourceToTargetType,\n\n\n'@{item().SourceTableName}' as ObjectName,\n'@{variables('vBronzeNotebookPath')}' as BronzeNotebookPath,\n'@{item().DeltaLastWatermarkDateTime}' as StartDate,\n'@{item().SourceKeyColumnList}' as ZOrderColumnList,\n'@{item().SourceDatabaseName}' as ServiceName,\n'@{item().IsActiveFlag}' as IsActive,\n'@{replace(item().SourceExtractSql, '''', '''''')}' as SourceExtractSql,\n'@{item().HistoricalDataLoadStartDate}' as HistoricalDataLoadStartDate,\n'@{item().DeltaUpdateWatermarkColumnName}' as DeltaUpdateWatermarkColumn,\n'@{item().SourceExtractMethod}' as SourceExtractMethod,\n'@{item().PipelineLastRunDateTime}' as LastUpdateDate,\n\n\n'@{pipeline().TriggerType}' as TriggerType,\n'@{pipeline().TriggerID}' as TriggerId,\n'@{pipeline().TriggerName}' as TriggerName,\n'@{pipeline().TriggerTime}' as TriggerTime,\n'@{activity('CopySalesforceObjectDelta').output.rowsCopied}' as RowsCopied,\n'@{activity('CopySalesforceObjectDelta').output.rowsRead}' as RowsRead,\n'@{activity('CopySalesforceObjectDelta').output.usedParallelCopies}' as NoParallelCopies,\n'@{activity('CopySalesforceObjectDelta').output.copyDuration}' as CopyDurationInSecs,\n'@{activity('CopySalesforceObjectDelta').output.effectiveIntegrationRuntime}' as effectiveIntegrationRuntime,\n'@{activity('CopySalesforceObjectDelta').output.executionDetails[0].source}' as SourceType,\n'@{activity('CopySalesforceObjectDelta').output.executionDetails[0].sink}' as SinkType,\n'@{activity('CopySalesforceObjectDelta').output.executionDetails[0].status}' as ExecutionStatus,\n'@{activity('CopySalesforceObjectDelta').output.executionDetails[0].start}' as CopyActivityStartTime,\n'@{utcnow()}' as CopyActivityEndTime,\n'@{activity('CopySalesforceObjectDelta').output.executionDetails[0].detailedDurations.queuingDuration}' as CopyActivityQueuingDurationInSecs,\n'@{activity('CopySalesforceObjectDelta').output.executionDetails[0].detailedDurations.timeToFirstByte}' as CopyActivityPreCopyScriptDurationInSecs,\n'@{activity('CopySalesforceObjectDelta').output.executionDetails[0].detailedDurations.transferDuration}' as CopyActivityTransferDurationInSecs,\nnull as ErrorMessage",
+															"type": "Expression"
+														},
+														"queryTimeout": "02:00:00",
+														"partitionOption": "None"
+													},
+													"sink": {
+														"type": "AzureSqlSink",
+														"writeBehavior": "insert",
+														"sqlWriterUseTableLock": false
+													},
+													"enableStaging": false,
+													"translator": {
+														"type": "TabularTranslator",
+														"typeConversion": true,
+														"typeConversionSettings": {
+															"allowDataTruncation": true,
+															"treatBooleanAsNumber": false
+														}
+													}
+												},
+												"inputs": [
+													{
+														"referenceName": "dsAzureSQLParam",
+														"type": "DatasetReference",
+														"parameters": {
+															"pSecretName": {
+																"value": "@pipeline().parameters.pAzureSQLSecretName",
+																"type": "Expression"
+															},
+															"pSchemaName": {
+																"value": "etl",
+																"type": "Expression"
+															},
+															"pTableName": {
+																"value": "ControlTableSourceToAdls",
+																"type": "Expression"
+															}
+														}
+													}
+												],
+												"outputs": [
+													{
+														"referenceName": "dsAzureSQLParam",
+														"type": "DatasetReference",
+														"parameters": {
+															"pSecretName": {
+																"value": "@pipeline().parameters.pAzureSQLSecretName",
+																"type": "Expression"
+															},
+															"pSchemaName": {
+																"value": "@item().AuditSchemaName",
+																"type": "Expression"
+															},
+															"pTableName": {
+																"value": "@item().AuditTableName",
+																"type": "Expression"
+															}
+														}
+													}
+												]
+											},
+											{
+												"name": "LogCopyFailureDelta",
+												"type": "Copy",
+												"dependsOn": [
+													{
+														"activity": "CopySalesforceObjectDelta",
+														"dependencyConditions": [
+															"Failed"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "0.12:00:00",
+													"retry": 0,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"source": {
+														"type": "AzureSqlSource",
+														"sqlReaderQuery": {
+															"value": "SELECT '@{pipeline().DataFactory}' as DataFactoryName,\n'@{pipeline().Pipeline}' as PipelineName,\n'@{pipeline().RunId}' as RunId,\n'Salesforce_To_DataLake' as SourceToTargetType,\n\n\n'@{item().SourceTableName}' as ObjectName,\n'@{variables('vBronzeNotebookPath')}' as BronzeNotebookPath,\n'@{item().DeltaLastWatermarkDateTime}' as StartDate,\n'@{item().SourceKeyColumnList}' as ZOrderColumnList,\n'@{item().SourceDatabaseName}' as ServiceName,\n'@{item().IsActiveFlag}' as IsActive,\n'@{replace(item().SourceExtractSql, '''', '''''')}' as SourceExtractSql,\n'@{item().HistoricalDataLoadStartDate}' as HistoricalDataLoadStartDate,\n'@{item().DeltaUpdateWatermarkColumnName}' as DeltaUpdateWatermarkColumn,\n'@{item().SourceExtractMethod}' as SourceExtractMethod,\n'@{item().PipelineLastRunDateTime}' as LastUpdateDate,\n\n'@{pipeline().TriggerType}' as TriggerType,\n'@{pipeline().TriggerID}' as TriggerId,\n'@{pipeline().TriggerName}' as TriggerName,\n'@{pipeline().TriggerTime}' as TriggerTime,\n'@{activity('CopySalesforceObjectDelta').output.rowsCopied}' as RowsCopied,\n'@{activity('CopySalesforceObjectDelta').output.rowsRead}' as RowsRead,\n'@{activity('CopySalesforceObjectDelta').output.usedParallelCopies}' as NoParallelCopies,\n'@{activity('CopySalesforceObjectDelta').output.copyDuration}' as CopyDurationInSecs,\n'@{activity('CopySalesforceObjectDelta').output.effectiveIntegrationRuntime}' as effectiveIntegrationRuntime,\n'@{activity('CopySalesforceObjectDelta').output.executionDetails[0].source}' as SourceType,\n'@{activity('CopySalesforceObjectDelta').output.executionDetails[0].sink}' as SinkType,\n'@{activity('CopySalesforceObjectDelta').output.executionDetails[0].status}' as ExecutionStatus,\n'@{activity('CopySalesforceObjectDelta').output.executionDetails[0].start}' as CopyActivityStartTime,\n'@{utcnow()}' as CopyActivityEndTime,\n'@{activity('CopySalesforceObjectDelta').output.executionDetails[0].detailedDurations.queuingDuration}' as CopyActivityQueuingDurationInSecs,\n'@{activity('CopySalesforceObjectDelta').output.executionDetails[0].detailedDurations.timeToFirstByte}' as CopyActivityPreCopyScriptDurationInSecs,\n'@{activity('CopySalesforceObjectDelta').output.executionDetails[0].detailedDurations.transferDuration}' as CopyActivityTransferDurationInSecs,\n'@{replace(activity('CopySalesforceObjectDelta').output.errors[0].Message,'''','')}' as ErrorMessage",
+															"type": "Expression"
+														},
+														"queryTimeout": "02:00:00",
+														"partitionOption": "None"
+													},
+													"sink": {
+														"type": "AzureSqlSink",
+														"writeBehavior": "insert",
+														"sqlWriterUseTableLock": false
+													},
+													"enableStaging": false,
+													"translator": {
+														"type": "TabularTranslator",
+														"typeConversion": true,
+														"typeConversionSettings": {
+															"allowDataTruncation": true,
+															"treatBooleanAsNumber": false
+														}
+													}
+												},
+												"inputs": [
+													{
+														"referenceName": "dsAzureSQLParam",
+														"type": "DatasetReference",
+														"parameters": {
+															"pSecretName": {
+																"value": "@pipeline().parameters.pAzureSQLSecretName",
+																"type": "Expression"
+															},
+															"pSchemaName": {
+																"value": "etl",
+																"type": "Expression"
+															},
+															"pTableName": {
+																"value": "ControlTableSourceToAdls",
+																"type": "Expression"
+															}
+														}
+													}
+												],
+												"outputs": [
+													{
+														"referenceName": "dsAzureSQLParam",
+														"type": "DatasetReference",
+														"parameters": {
+															"pSecretName": {
+																"value": "@pipeline().parameters.pAzureSQLSecretName",
+																"type": "Expression"
+															},
+															"pSchemaName": {
+																"value": "@item().AuditSchemaName",
+																"type": "Expression"
+															},
+															"pTableName": {
+																"value": "@item().AuditTableName",
+																"type": "Expression"
+															}
+														}
+													}
+												]
+											},
+											{
+												"name": "LoadDeltaLakeDeltaDelta",
+												"type": "DatabricksNotebook",
+												"dependsOn": [
+													{
+														"activity": "LogCopySuccessDelta",
+														"dependencyConditions": [
+															"Succeeded"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "0.12:00:00",
+													"retry": 0,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"notebookPath": {
+														"value": "@variables('vBronzeNotebookPath')",
+														"type": "Expression"
+													},
+													"baseParameters": {
+														"SourceKeyColumnList": {
+															"value": "@item().SourceKeyColumnList",
+															"type": "Expression"
+														},
+														"SourceObjectPath": {
+															"value": "@{item().DataLakeDestinationFolder}/@{item().SourceExtractMethod}/@{item().SourceTableName}/@{formatDateTime(variables('vCurrentTime'), 'yyyy/MM/dd/HH/mm')}/@{item().SourceTableName}Data",
+															"type": "Expression"
+														},
+														"SourceObjectName": {
+															"value": "@item().SourceTableName",
+															"type": "Expression"
+														},
+														"SourceSystemName": {
+															"value": "@item().SourceDatabaseName",
+															"type": "Expression"
+														},
+														"SourceExtractMethod": {
+															"value": "@item().SourceExtractMethod",
+															"type": "Expression"
+														},
+														"DeltaUpdateWatermarkColumnName": {
+															"value": "@item().DeltaUpdateWatermarkColumnName",
+															"type": "Expression"
+														},
+														"UnityCatalogName": {
+															"value": "@item().UnityCatalogName",
+															"type": "Expression"
+														},
+														"DataLakeDestinationContainer": {
+															"value": "@item().DataLakeDestinationContainer",
+															"type": "Expression"
+														},
+														"StorageAccountName": {
+															"value": "@item().StorageAccountName",
+															"type": "Expression"
+														},
+														"BronzeFolderName": {
+															"value": "@variables('vBronzeFolderName')",
+															"type": "Expression"
+														}
+													}
+												},
+												"linkedServiceName": {
+													"referenceName": "lnkAzureDatabricks",
+													"type": "LinkedServiceReference"
+												}
+											}
+										]
+									}
+								]
+							}
+						},
+						{
+							"name": "UpdateControlTable",
+							"type": "Script",
+							"dependsOn": [
+								{
+									"activity": "ExtractionMethod",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"linkedServiceName": {
+								"referenceName": "lnkAzureSqlParameterized",
+								"type": "LinkedServiceReference",
+								"parameters": {
+									"SecretName": {
+										"value": "@pipeline().parameters.pAzureSQLSecretName",
+										"type": "Expression"
+									}
+								}
+							},
+							"typeProperties": {
+								"scripts": [
+									{
+										"type": "Query",
+										"text": {
+											"value": "UPDATE etl.ControlTableSourceToAdlsLoad \nSET DeltaLastWatermarkDateTime = '@{variables('vCurrentTime')}',\nPipelineLastRunDateTime = '@{pipeline().TriggerTime}'\nWHERE PipelineTriggerName = '@{pipeline().parameters.pTriggerName}'\nAND SourceTableName = '@{item().SourceTableName}'",
+											"type": "Expression"
+										}
+									}
+								],
+								"scriptBlockExecutionTimeout": "02:00:00"
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "SetCurrentTime",
+				"type": "SetVariable",
+				"dependsOn": [
+					{
+						"activity": "ControlTableLookup",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "vCurrentTime",
+					"value": {
+						"value": "@if(not(equals(pipeline().parameters.pQueryEndDate, 'NA')), pipeline().parameters.pQueryEndDate, formatDateTime(utcNow(),'yyyy-MM-dd HH:mm:ss'))",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "ControlTableLookup",
+				"type": "Lookup",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "AzureSqlSource",
+						"sqlReaderQuery": {
+							"value": "SELECT cts.*, utc.UnityCatalogName, utc.StorageAccountName\nfrom etl.ControlTableSourceToAdlsLoad cts \ninner join etl.UnityCatalogConnectionStore utc on cts.UCFlag = utc.IsActiveFlag\nwhere cts.SourceType = 'Salesforce'\nand cts.IsActiveFlag = 'Y'\nand (PipelineTriggerName = '@{pipeline().parameters.pTriggerName}')",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "dsAzureSQLParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pSecretName": {
+								"value": "@pipeline().parameters.pAzureSQLSecretName",
+								"type": "Expression"
+							},
+							"pSchemaName": "etl",
+							"pTableName": "ControlTableSourceToAdls"
+						}
+					},
+					"firstRowOnly": false
+				}
+			}
+		],
+		"parameters": {
+			"pTriggerName": {
+				"type": "string",
+				"defaultValue": "trgSalesforce"
+			},
+			"pSalesforceUrl": {
+				"type": "string",
+				"defaultValue": "https://pellacorp.my.salesforce.com/"
+			},
+			"pSalesforceUser": {
+				"type": "string",
+				"defaultValue": "integrationuser@pella.com"
+			},
+			"pSalesforcePwdKvName": {
+				"type": "string",
+				"defaultValue": "SalesforcePwd"
+			},
+			"pSalesforceSecretKvName": {
+				"type": "string",
+				"defaultValue": "SalesforceClientSecret"
+			},
+			"pSalesforceApiVersion": {
+				"type": "string",
+				"defaultValue": "54.0"
+			},
+			"pAzureSQLSecretName": {
+				"type": "string",
+				"defaultValue": "DLSqlCntrlConn"
+			},
+			"pQueryEndDate": {
+				"type": "string",
+				"defaultValue": "NA"
+			}
+		},
+		"variables": {
+			"vCurrentTime": {
+				"type": "String"
+			},
+			"vBronzeNotebookPath": {
+				"type": "String",
+				"defaultValue": "/BronzeToSilverDataProcessing/Salesforce/Load Salesforce Bronze Tables"
+			},
+			"vBronzeFolderName": {
+				"type": "String",
+				"defaultValue": "bronze"
+			}
+		},
+		"folder": {
+			"name": "Salesforce"
+		},
+		"annotations": []
+	}
+}

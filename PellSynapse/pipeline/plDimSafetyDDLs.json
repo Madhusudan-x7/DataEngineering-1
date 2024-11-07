@@ -1,0 +1,68 @@
+{
+	"name": "plDimSafetyDDLs",
+	"properties": {
+		"activities": [
+			{
+				"name": "DDL_dim_cost_center",
+				"type": "DatabricksNotebook",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"notebookPath": "/SilverToGold/Dev/In-Development/DDL_dim_cost_center",
+					"baseParameters": {
+						"CatalogName": "dev_gold",
+						"SchemaName": "edm",
+						"TableName": "dim_cost_center"
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "lnkAzureDatabricks",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "DDL_dim_location",
+				"type": "DatabricksNotebook",
+				"dependsOn": [
+					{
+						"activity": "DDL_dim_cost_center",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"notebookPath": "/SilverToGold/Dev/In-Development/DDL_dim_location",
+					"baseParameters": {
+						"CatalogName": "dev_gold",
+						"SchemaName": "edm",
+						"TableName": "dim_location"
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "lnkAzureDatabricks",
+					"type": "LinkedServiceReference"
+				}
+			}
+		],
+		"folder": {
+			"name": "SilverGold/Safety/dimSafety"
+		},
+		"annotations": []
+	}
+}

@@ -1,0 +1,133 @@
+{
+	"name": "plPlantModelTrainingInferencing",
+	"properties": {
+		"activities": [
+			{
+				"name": "Model Training",
+				"type": "AzureMLExecutePipeline",
+				"dependsOn": [
+					{
+						"activity": "Data Preparation",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"mlPipelineParameters": {
+						"plant_name": {
+							"value": "@pipeline().parameters.pPlantName",
+							"type": "Expression"
+						},
+						"model_name": {
+							"value": "@pipeline().parameters.pModelName",
+							"type": "Expression"
+						},
+						"target_column": {
+							"value": "@pipeline().parameters.pTargetColumn",
+							"type": "Expression"
+						}
+					},
+					"mlPipelineEndpointId": "c712c87f-75e1-4141-a3cc-1ba5e878b903"
+				},
+				"linkedServiceName": {
+					"referenceName": "lnkAzureMLService",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "Data Preparation",
+				"type": "AzureMLExecutePipeline",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"mlPipelineParameters": {
+						"plant_name": {
+							"value": "@pipeline().parameters.pPlantName",
+							"type": "Expression"
+						}
+					},
+					"mlPipelineEndpointId": "41f22f64-8399-42e3-9fac-208b4d8ff5a8"
+				},
+				"linkedServiceName": {
+					"referenceName": "lnkAzureMLService",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "Data Scoring",
+				"type": "AzureMLExecutePipeline",
+				"dependsOn": [
+					{
+						"activity": "Model Training",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"mlPipelineParameters": {
+						"plant_name": {
+							"value": "@pipeline().parameters.pPlantName",
+							"type": "Expression"
+						},
+						"model_name": {
+							"value": "@pipeline().parameters.pModelName",
+							"type": "Expression"
+						},
+						"target_column": {
+							"value": "@pipeline().parameters.pTargetColumn",
+							"type": "Expression"
+						}
+					},
+					"mlPipelineEndpointId": "15b3c6c9-a8de-4406-b252-8aedbb10624f"
+				},
+				"linkedServiceName": {
+					"referenceName": "lnkAzureMLService",
+					"type": "LinkedServiceReference"
+				}
+			}
+		],
+		"parameters": {
+			"pPlantName": {
+				"type": "string",
+				"defaultValue": "CARROLL"
+			},
+			"pModelName": {
+				"type": "string",
+				"defaultValue": "CARROLL_ORDER_DELINQUENCY_MODEL"
+			},
+			"pTargetColumn": {
+				"type": "string",
+				"defaultValue": "DELINQUENT"
+			}
+		},
+		"folder": {
+			"name": "Data Science"
+		},
+		"annotations": []
+	}
+}

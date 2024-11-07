@@ -1,0 +1,36 @@
+{
+	"name": "dimHierarchyDDLs",
+	"properties": {
+		"activities": [
+			{
+				"name": "DDL_d_org_role_hierarchy",
+				"type": "DatabricksNotebook",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"notebookPath": "/SilverToGold/Dev/In-Development/DDL_d_org_role_hierarchy",
+					"baseParameters": {
+						"CatalogName": "dev_gold",
+						"SchemaName": "edm",
+						"TableName": "d_org_role_hierarchy"
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "lnkAzureDatabricks",
+					"type": "LinkedServiceReference"
+				}
+			}
+		],
+		"folder": {
+			"name": "SilverGold/Hierarchy/dimHierarchy"
+		},
+		"annotations": []
+	}
+}

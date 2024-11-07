@@ -1,0 +1,942 @@
+{
+	"name": "plTransferFileToFtp",
+	"properties": {
+		"activities": [
+			{
+				"name": "QueryControlTable",
+				"type": "Lookup",
+				"dependsOn": [
+					{
+						"activity": "SetCurrentDateTime",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "AzureSqlSource",
+						"sqlReaderQuery": {
+							"value": "SELECT ftp.*,\nconn.ConnectionType,\nconn.HostName,\nconn.Port,\nconn.UserName,\nconn.PasswordSecretName,\nconn.AuthType,\nconn.VolumePath,\nconn.VolumeName,\nconn.AdlsBasePath,\nuc.UnityCatalogName,\nuc.StorageAccountName FROM \netl.ControlTableFileToFTP ftp,\netl.FileToFTPConnectionDetails conn,\netl.UnityCatalogConnectionStore uc\nWHERE ftp.ConnectionDetailsId = conn.ConnectionDetailsId\nAND uc.IsActiveFlag = 'Y'\nAND ftp.TriggerName = '@{pipeline().parameters.pTriggerName}'",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "dsAzureSQLParam",
+						"type": "DatasetReference",
+						"parameters": {
+							"pSecretName": {
+								"value": "@pipeline().parameters.pAzureSQLSecretName",
+								"type": "Expression"
+							},
+							"pSchemaName": {
+								"value": "@pipeline().parameters.pAzureSQLSchemaName",
+								"type": "Expression"
+							},
+							"pTableName": {
+								"value": "@pipeline().parameters.pAzureSQLTableName",
+								"type": "Expression"
+							}
+						}
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "ForEachRecord",
+				"type": "ForEach",
+				"dependsOn": [
+					{
+						"activity": "QueryControlTable",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@activity('QueryControlTable').output.value",
+						"type": "Expression"
+					},
+					"isSequential": true,
+					"activities": [
+						{
+							"name": "ExecuteNotebook",
+							"type": "DatabricksNotebook",
+							"dependsOn": [
+								{
+									"activity": "SetProcessStartDate",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"notebookPath": {
+									"value": "@item().NotebookPath",
+									"type": "Expression"
+								},
+								"baseParameters": {
+									"OutputFilePath": {
+										"value": "@variables('vGeneratedVolumePath')",
+										"type": "Expression"
+									},
+									"PipelineLastRunDateTime": {
+										"value": "@item().PipelineLastRunDateTime",
+										"type": "Expression"
+									},
+									"UnityCatalogName": {
+										"value": "@item().UnityCatalogName",
+										"type": "Expression"
+									},
+									"StorageAccountName": {
+										"value": "@item().StorageAccountname",
+										"type": "Expression"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "lnkAzureDatabricks",
+								"type": "LinkedServiceReference"
+							}
+						},
+						{
+							"name": "GetFilesForCopy",
+							"type": "GetMetadata",
+							"dependsOn": [
+								{
+									"activity": "ExecuteNotebook",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"dataset": {
+									"referenceName": "dsADLSCsvParam",
+									"type": "DatasetReference",
+									"parameters": {
+										"pDataLakeContainer": "master",
+										"pDataLakeDirectory": {
+											"value": "@variables('vGeneratedAdlsFilePath')",
+											"type": "Expression"
+										},
+										"pDataLakeFile": "*"
+									}
+								},
+								"fieldList": [
+									"childItems"
+								],
+								"storeSettings": {
+									"type": "AzureBlobFSReadSettings",
+									"recursive": true,
+									"enablePartitionDiscovery": false
+								},
+								"formatSettings": {
+									"type": "DelimitedTextReadSettings"
+								}
+							}
+						},
+						{
+							"name": "Copy Activity",
+							"type": "Switch",
+							"dependsOn": [
+								{
+									"activity": "GetFilesForCopy",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"userProperties": [],
+							"typeProperties": {
+								"on": {
+									"value": "@item().AuthType",
+									"type": "Expression"
+								},
+								"cases": [
+									{
+										"value": "SSH",
+										"activities": [
+											{
+												"name": "CopyFileToFtpSSH",
+												"type": "Copy",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "0.12:00:00",
+													"retry": 0,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"source": {
+														"type": "DelimitedTextSource",
+														"storeSettings": {
+															"type": "AzureBlobFSReadSettings",
+															"recursive": true,
+															"wildcardFolderPath": {
+																"value": "@variables('vGeneratedAdlsFilePath')",
+																"type": "Expression"
+															},
+															"wildcardFileName": "*.csv",
+															"enablePartitionDiscovery": false
+														},
+														"formatSettings": {
+															"type": "DelimitedTextReadSettings"
+														}
+													},
+													"sink": {
+														"type": "DelimitedTextSink",
+														"storeSettings": {
+															"type": "SftpWriteSettings",
+															"operationTimeout": "01:00:00",
+															"useTempFileRename": true
+														},
+														"formatSettings": {
+															"type": "DelimitedTextWriteSettings",
+															"quoteAllText": true,
+															"fileExtension": ".txt"
+														}
+													},
+													"enableStaging": false,
+													"translator": {
+														"type": "TabularTranslator",
+														"typeConversion": true,
+														"typeConversionSettings": {
+															"allowDataTruncation": true,
+															"treatBooleanAsNumber": false
+														}
+													}
+												},
+												"inputs": [
+													{
+														"referenceName": "dsADLSCsvParam",
+														"type": "DatasetReference",
+														"parameters": {
+															"pDataLakeContainer": "master",
+															"pDataLakeDirectory": {
+																"value": "@variables('vGeneratedAdlsFilePath')",
+																"type": "Expression"
+															},
+															"pDataLakeFile": "*"
+														}
+													}
+												],
+												"outputs": [
+													{
+														"referenceName": "dsSFTPSSHDelimited",
+														"type": "DatasetReference",
+														"parameters": {
+															"dsHostName": {
+																"value": "@item().HostName",
+																"type": "Expression"
+															},
+															"dsPort": {
+																"value": "@item().Port",
+																"type": "Expression"
+															},
+															"dsUserName": {
+																"value": "@item().UserName",
+																"type": "Expression"
+															},
+															"dsSecretName": {
+																"value": "@item().PasswordSecretName",
+																"type": "Expression"
+															},
+															"dsDirectoryPath": {
+																"value": "@item().FTPDirectoryPath",
+																"type": "Expression"
+															},
+															"dsFileDelimiter": {
+																"value": "@item().FileDelimiter",
+																"type": "Expression"
+															},
+															"dsQuoteCharacter": {
+																"value": "@item().QuoteCharacter",
+																"type": "Expression"
+															},
+															"dsFirstRowAsHeader": {
+																"value": "@item().FirstRowAsHeader",
+																"type": "Expression"
+															},
+															"dsFileName": "*"
+														}
+													}
+												]
+											},
+											{
+												"name": "LogCopySuccessSFTPSSH",
+												"type": "Copy",
+												"dependsOn": [
+													{
+														"activity": "CopyFileToFtpSSH",
+														"dependencyConditions": [
+															"Succeeded"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "0.12:00:00",
+													"retry": 0,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"source": {
+														"type": "AzureSqlSource",
+														"sqlReaderQuery": {
+															"value": "SELECT '@{pipeline().DataFactory}' as DataFactoryName,\n'@{pipeline().Pipeline}' as PipelineName,\n'@{pipeline().RunId}' as RunId,\n'File_To_Ftp' as SourceToTargetType,\n\nnull as SourceExtractMethod,\n'@{pipeline().parameters.pTriggerName}' as TriggerName,\n'@{item().NotebookPath}' as NotebookPath,\n'@{variables('vGeneratedAdlsFilePath')}' as OutputFilePath,\n'@{item().FileFormat}' as FileFormat,\n'@{item().FTPDirectoryPath}' as FTPDirectoryPath,\n'@{item().ConnectionDetailsId}' as ConnectionDetailsId,\n'@{item().FileDelimiter}' as FileDelimiter,\n'@{item().QuoteCharacter}' as QuoteCharacter,\n'@{item().FirstRowAsHeader}' as FirstRowAsHeader,\n\n\n'@{item().ConnectionType}' as ConnectionType,\n'@{item().HostName}' as HostName,\n'@{item().Port}' as Port,\n'@{item().UserName}' as UserName,\n'@{item().PasswordSecretName}' as PasswordSecretName,\n\n\n'@{pipeline().TriggerType}' as TriggerType,\n'@{pipeline().TriggerID}' as TriggerId,\n'@{pipeline().TriggerTime}' as TriggerTime,\n'@{activity('CopyFileToFtpSSH').output.dataWritten}' as RowsCopied,\n'@{activity('CopyFileToFtpSSH').output.dataRead}' as RowsRead,\n'@{activity('CopyFileToFtpSSH').output.usedParallelCopies}' as NoParallelCopies,\n'@{activity('CopyFileToFtpSSH').output.copyDuration}' as CopyDurationInSecs,\n'@{activity('CopyFileToFtpSSH').output.effectiveIntegrationRuntime}' as effectiveIntegrationRuntime,\n'@{activity('CopyFileToFtpSSH').output.executionDetails[0].source}' as SourceType,\n'@{activity('CopyFileToFtpSSH').output.executionDetails[0].sink}' as SinkType,\n'@{activity('CopyFileToFtpSSH').output.executionDetails[0].status}' as ExecutionStatus,\n'@{activity('CopyFileToFtpSSH').output.executionDetails[0].start}' as CopyActivityStartTime,\n'@{utcnow()}' as CopyActivityEndTime,\n'@{activity('CopyFileToFtpSSH').output.executionDetails[0].detailedDurations.queuingDuration}' as CopyActivityQueuingDurationInSecs,\nnull as CopyActivityPreCopyScriptDurationInSecs,\n'@{activity('CopyFileToFtpSSH').output.executionDetails[0].detailedDurations.transferDuration}' as CopyActivityTransferDurationInSecs,\nnull as ErrorMessage",
+															"type": "Expression"
+														},
+														"queryTimeout": "02:00:00",
+														"partitionOption": "None"
+													},
+													"sink": {
+														"type": "AzureSqlSink",
+														"writeBehavior": "insert",
+														"sqlWriterUseTableLock": false
+													},
+													"enableStaging": false,
+													"translator": {
+														"type": "TabularTranslator",
+														"typeConversion": true,
+														"typeConversionSettings": {
+															"allowDataTruncation": true,
+															"treatBooleanAsNumber": false
+														}
+													}
+												},
+												"inputs": [
+													{
+														"referenceName": "dsAzureSQLParam",
+														"type": "DatasetReference",
+														"parameters": {
+															"pSecretName": {
+																"value": "@pipeline().parameters.pAzureSQLSecretName",
+																"type": "Expression"
+															},
+															"pSchemaName": {
+																"value": "@pipeline().parameters.pAzureSQLSchemaName",
+																"type": "Expression"
+															},
+															"pTableName": {
+																"value": "@pipeline().parameters.pAzureSQLTableName",
+																"type": "Expression"
+															}
+														}
+													}
+												],
+												"outputs": [
+													{
+														"referenceName": "dsAzureSQLParam",
+														"type": "DatasetReference",
+														"parameters": {
+															"pSecretName": {
+																"value": "@pipeline().parameters.pAzureSQLSecretName",
+																"type": "Expression"
+															},
+															"pSchemaName": {
+																"value": "@item().AuditSchemaName",
+																"type": "Expression"
+															},
+															"pTableName": {
+																"value": "@item().AuditTableName",
+																"type": "Expression"
+															}
+														}
+													}
+												]
+											},
+											{
+												"name": "LogCopyFailureSFTPSSH",
+												"type": "Copy",
+												"dependsOn": [
+													{
+														"activity": "CopyFileToFtpSSH",
+														"dependencyConditions": [
+															"Failed"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "0.12:00:00",
+													"retry": 0,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"source": {
+														"type": "AzureSqlSource",
+														"sqlReaderQuery": {
+															"value": "SELECT '@{pipeline().DataFactory}' as DataFactoryName,\n'@{pipeline().Pipeline}' as PipelineName,\n'@{pipeline().RunId}' as RunId,\n'File_To_Ftp' as SourceToTargetType,\n\nnull as SourceExtractMethod,\n'@{pipeline().parameters.pTriggerName}' as TriggerName,\n'@{item().NotebookPath}' as NotebookPath,\n'@{variables('vGeneratedAdlsFilePath')}' as OutputFilePath,\n'@{item().FileFormat}' as FileFormat,\n'@{item().FTPDirectoryPath}' as FTPDirectoryPath,\n'@{item().ConnectionDetailsId}' as ConnectionDetailsId,\n'@{item().FileDelimiter}' as FileDelimiter,\n'@{item().QuoteCharacter}' as QuoteCharacter,\n'@{item().FirstRowAsHeader}' as FirstRowAsHeader,\n\n\n'@{item().ConnectionType}' as ConnectionType,\n'@{item().HostName}' as HostName,\n'@{item().Port}' as Port,\n'@{item().UserName}' as UserName,\n'@{item().PasswordSecretName}' as PasswordSecretName,\n\n\n'@{pipeline().TriggerType}' as TriggerType,\n'@{pipeline().TriggerID}' as TriggerId,\n'@{pipeline().TriggerTime}' as TriggerTime,\n'@{activity('CopyFileToFtpSSH').output.rowsCopied}' as RowsCopied,\n'@{activity('CopyFileToFtpSSH').output.rowsRead}' as RowsRead,\n'@{activity('CopyFileToFtpSSH').output.usedParallelCopies}' as NoParallelCopies,\n'@{activity('CopyFileToFtpSSH').output.copyDuration}' as CopyDurationInSecs,\n'@{activity('CopyFileToFtpSSH').output.effectiveIntegrationRuntime}' as effectiveIntegrationRuntime,\n'@{activity('CopyFileToFtpSSH').output.executionDetails[0].source}' as SourceType,\n'@{activity('CopyFileToFtpSSH').output.executionDetails[0].sink}' as SinkType,\n'@{activity('CopyFileToFtpSSH').output.executionDetails[0].status}' as ExecutionStatus,\n'@{activity('CopyFileToFtpSSH').output.executionDetails[0].start}' as CopyActivityStartTime,\n'@{utcnow()}' as CopyActivityEndTime,\n'@{activity('CopyFileToFtpSSH').output.executionDetails[0].detailedDurations.queuingDuration}' as CopyActivityQueuingDurationInSecs,\n'@{activity('CopyFileToFtpSSH').output.executionDetails[0].detailedDurations.timeToFirstByte}' as CopyActivityPreCopyScriptDurationInSecs,\n'@{activity('CopyFileToFtpSSH').output.executionDetails[0].detailedDurations.transferDuration}' as CopyActivityTransferDurationInSecs,\n'@{replace(activity('CopyFileToFtpSSH').output.errors[0].Message,'''','')}' as ErrorMessage",
+															"type": "Expression"
+														},
+														"queryTimeout": "02:00:00",
+														"partitionOption": "None"
+													},
+													"sink": {
+														"type": "AzureSqlSink",
+														"writeBehavior": "insert",
+														"sqlWriterUseTableLock": false
+													},
+													"enableStaging": false,
+													"translator": {
+														"type": "TabularTranslator",
+														"typeConversion": true,
+														"typeConversionSettings": {
+															"allowDataTruncation": true,
+															"treatBooleanAsNumber": false
+														}
+													}
+												},
+												"inputs": [
+													{
+														"referenceName": "dsAzureSQLParam",
+														"type": "DatasetReference",
+														"parameters": {
+															"pSecretName": {
+																"value": "@pipeline().parameters.pAzureSQLSecretName",
+																"type": "Expression"
+															},
+															"pSchemaName": {
+																"value": "@pipeline().parameters.pAzureSQLSchemaName",
+																"type": "Expression"
+															},
+															"pTableName": {
+																"value": "@pipeline().parameters.pAzureSQLTableName",
+																"type": "Expression"
+															}
+														}
+													}
+												],
+												"outputs": [
+													{
+														"referenceName": "dsAzureSQLParam",
+														"type": "DatasetReference",
+														"parameters": {
+															"pSecretName": {
+																"value": "@pipeline().parameters.pAzureSQLSecretName",
+																"type": "Expression"
+															},
+															"pSchemaName": {
+																"value": "@item().AuditSchemaName",
+																"type": "Expression"
+															},
+															"pTableName": {
+																"value": "@item().AuditTableName",
+																"type": "Expression"
+															}
+														}
+													}
+												]
+											}
+										]
+									}
+								],
+								"defaultActivities": [
+									{
+										"name": "CopyFileToFtpBasic",
+										"type": "Copy",
+										"dependsOn": [],
+										"policy": {
+											"timeout": "0.12:00:00",
+											"retry": 0,
+											"retryIntervalInSeconds": 30,
+											"secureOutput": false,
+											"secureInput": false
+										},
+										"userProperties": [],
+										"typeProperties": {
+											"source": {
+												"type": "DelimitedTextSource",
+												"storeSettings": {
+													"type": "AzureBlobFSReadSettings",
+													"recursive": true,
+													"wildcardFolderPath": {
+														"value": "@variables('vGeneratedAdlsFilePath')",
+														"type": "Expression"
+													},
+													"wildcardFileName": "*.csv",
+													"enablePartitionDiscovery": false
+												},
+												"formatSettings": {
+													"type": "DelimitedTextReadSettings"
+												}
+											},
+											"sink": {
+												"type": "DelimitedTextSink",
+												"storeSettings": {
+													"type": "SftpWriteSettings",
+													"operationTimeout": "01:00:00",
+													"useTempFileRename": false
+												},
+												"formatSettings": {
+													"type": "DelimitedTextWriteSettings",
+													"quoteAllText": true,
+													"fileExtension": ".txt"
+												}
+											},
+											"enableStaging": false,
+											"translator": {
+												"type": "TabularTranslator",
+												"typeConversion": true,
+												"typeConversionSettings": {
+													"allowDataTruncation": true,
+													"treatBooleanAsNumber": false
+												}
+											}
+										},
+										"inputs": [
+											{
+												"referenceName": "dsADLSCsvParam",
+												"type": "DatasetReference",
+												"parameters": {
+													"pDataLakeContainer": "master",
+													"pDataLakeDirectory": {
+														"value": "@variables('vGeneratedAdlsFilePath')",
+														"type": "Expression"
+													},
+													"pDataLakeFile": "*"
+												}
+											}
+										],
+										"outputs": [
+											{
+												"referenceName": "dsSFTPPellaDelimited",
+												"type": "DatasetReference",
+												"parameters": {
+													"dsHostName": {
+														"value": "@item().HostName",
+														"type": "Expression"
+													},
+													"dsPort": {
+														"value": "@item().Port",
+														"type": "Expression"
+													},
+													"dsUserName": {
+														"value": "@item().UserName",
+														"type": "Expression"
+													},
+													"dsSecretName": {
+														"value": "@item().PasswordSecretName",
+														"type": "Expression"
+													},
+													"dsDirectoryPath": {
+														"value": "@item().FtpDirectoryPath",
+														"type": "Expression"
+													},
+													"dsFileDelimiter": {
+														"value": "@item().FileDelimiter",
+														"type": "Expression"
+													},
+													"dsQuoteCharacter": {
+														"value": "@item().QuoteCharacter",
+														"type": "Expression"
+													},
+													"dsFirstRowAsHeader": {
+														"value": "@item().FirstRowAsHeader",
+														"type": "Expression"
+													},
+													"dsFileName": "*"
+												}
+											}
+										]
+									},
+									{
+										"name": "LogCopySuccessSFTPBasic",
+										"type": "Copy",
+										"dependsOn": [
+											{
+												"activity": "CopyFileToFtpBasic",
+												"dependencyConditions": [
+													"Succeeded"
+												]
+											}
+										],
+										"policy": {
+											"timeout": "0.12:00:00",
+											"retry": 0,
+											"retryIntervalInSeconds": 30,
+											"secureOutput": false,
+											"secureInput": false
+										},
+										"userProperties": [],
+										"typeProperties": {
+											"source": {
+												"type": "AzureSqlSource",
+												"sqlReaderQuery": {
+													"value": "SELECT '@{pipeline().DataFactory}' as DataFactoryName,\n'@{pipeline().Pipeline}' as PipelineName,\n'@{pipeline().RunId}' as RunId,\n'File_To_Ftp' as SourceToTargetType,\n\nnull as SourceExtractMethod,\n'@{pipeline().parameters.pTriggerName}' as TriggerName,\n'@{item().NotebookPath}' as NotebookPath,\n'@{variables('vGeneratedAdlsFilePath')}' as OutputFilePath,\n'@{item().FileFormat}' as FileFormat,\n'@{item().FTPDirectoryPath}' as FTPDirectoryPath,\n'@{item().ConnectionDetailsId}' as ConnectionDetailsId,\n'@{item().FileDelimiter}' as FileDelimiter,\n'@{item().QuoteCharacter}' as QuoteCharacter,\n'@{item().FirstRowAsHeader}' as FirstRowAsHeader,\n\n\n'@{item().ConnectionType}' as ConnectionType,\n'@{item().HostName}' as HostName,\n'@{item().Port}' as Port,\n'@{item().UserName}' as UserName,\n'@{item().PasswordSecretName}' as PasswordSecretName,\n\n\n'@{pipeline().TriggerType}' as TriggerType,\n'@{pipeline().TriggerID}' as TriggerId,\n'@{pipeline().TriggerTime}' as TriggerTime,\n'@{activity('CopyFileToFtpBasic').output.dataWritten}' as RowsCopied,\n'@{activity('CopyFileToFtpBasic').output.dataRead}' as RowsRead,\n'@{activity('CopyFileToFtpBasic').output.usedParallelCopies}' as NoParallelCopies,\n'@{activity('CopyFileToFtpBasic').output.copyDuration}' as CopyDurationInSecs,\n'@{activity('CopyFileToFtpBasic').output.effectiveIntegrationRuntime}' as effectiveIntegrationRuntime,\n'@{activity('CopyFileToFtpBasic').output.executionDetails[0].source}' as SourceType,\n'@{activity('CopyFileToFtpBasic').output.executionDetails[0].sink}' as SinkType,\n'@{activity('CopyFileToFtpBasic').output.executionDetails[0].status}' as ExecutionStatus,\n'@{activity('CopyFileToFtpBasic').output.executionDetails[0].start}' as CopyActivityStartTime,\n'@{utcnow()}' as CopyActivityEndTime,\n'@{activity('CopyFileToFtpBasic').output.executionDetails[0].detailedDurations.queuingDuration}' as CopyActivityQueuingDurationInSecs,\nnull as CopyActivityPreCopyScriptDurationInSecs,\n'@{activity('CopyFileToFtpBasic').output.executionDetails[0].detailedDurations.transferDuration}' as CopyActivityTransferDurationInSecs,\nnull as ErrorMessage",
+													"type": "Expression"
+												},
+												"queryTimeout": "02:00:00",
+												"partitionOption": "None"
+											},
+											"sink": {
+												"type": "AzureSqlSink",
+												"writeBehavior": "insert",
+												"sqlWriterUseTableLock": false
+											},
+											"enableStaging": false,
+											"translator": {
+												"type": "TabularTranslator",
+												"typeConversion": true,
+												"typeConversionSettings": {
+													"allowDataTruncation": true,
+													"treatBooleanAsNumber": false
+												}
+											}
+										},
+										"inputs": [
+											{
+												"referenceName": "dsAzureSQLParam",
+												"type": "DatasetReference",
+												"parameters": {
+													"pSecretName": {
+														"value": "@pipeline().parameters.pAzureSQLSecretName",
+														"type": "Expression"
+													},
+													"pSchemaName": {
+														"value": "@pipeline().parameters.pAzureSQLSchemaName",
+														"type": "Expression"
+													},
+													"pTableName": {
+														"value": "@pipeline().parameters.pAzureSQLTableName",
+														"type": "Expression"
+													}
+												}
+											}
+										],
+										"outputs": [
+											{
+												"referenceName": "dsAzureSQLParam",
+												"type": "DatasetReference",
+												"parameters": {
+													"pSecretName": {
+														"value": "@pipeline().parameters.pAzureSQLSecretName",
+														"type": "Expression"
+													},
+													"pSchemaName": {
+														"value": "@item().AuditSchemaName",
+														"type": "Expression"
+													},
+													"pTableName": {
+														"value": "@item().AuditTableName",
+														"type": "Expression"
+													}
+												}
+											}
+										]
+									},
+									{
+										"name": "LogCopyFailureSFTPBasic",
+										"type": "Copy",
+										"dependsOn": [
+											{
+												"activity": "CopyFileToFtpBasic",
+												"dependencyConditions": [
+													"Failed"
+												]
+											}
+										],
+										"policy": {
+											"timeout": "0.12:00:00",
+											"retry": 0,
+											"retryIntervalInSeconds": 30,
+											"secureOutput": false,
+											"secureInput": false
+										},
+										"userProperties": [],
+										"typeProperties": {
+											"source": {
+												"type": "AzureSqlSource",
+												"sqlReaderQuery": {
+													"value": "SELECT '@{pipeline().DataFactory}' as DataFactoryName,\n'@{pipeline().Pipeline}' as PipelineName,\n'@{pipeline().RunId}' as RunId,\n'File_To_Ftp' as SourceToTargetType,\n\nnull as SourceExtractMethod,\n'@{pipeline().parameters.pTriggerName}' as TriggerName,\n'@{item().NotebookPath}' as NotebookPath,\n'@{variables('vGeneratedAdlsFilePath')}' as OutputFilePath,\n'@{item().FileFormat}' as FileFormat,\n'@{item().FTPDirectoryPath}' as FTPDirectoryPath,\n'@{item().ConnectionDetailsId}' as ConnectionDetailsId,\n'@{item().FileDelimiter}' as FileDelimiter,\n'@{item().QuoteCharacter}' as QuoteCharacter,\n'@{item().FirstRowAsHeader}' as FirstRowAsHeader,\n\n\n'@{item().ConnectionType}' as ConnectionType,\n'@{item().HostName}' as HostName,\n'@{item().Port}' as Port,\n'@{item().UserName}' as UserName,\n'@{item().PasswordSecretName}' as PasswordSecretName,\n\n\n'@{pipeline().TriggerType}' as TriggerType,\n'@{pipeline().TriggerID}' as TriggerId,\n'@{pipeline().TriggerTime}' as TriggerTime,\n'@{activity('CopyFileToFtpBasic').output.rowsCopied}' as RowsCopied,\n'@{activity('CopyFileToFtpBasic').output.rowsRead}' as RowsRead,\n'@{activity('CopyFileToFtpBasic').output.usedParallelCopies}' as NoParallelCopies,\n'@{activity('CopyFileToFtpBasic').output.copyDuration}' as CopyDurationInSecs,\n'@{activity('CopyFileToFtpBasic').output.effectiveIntegrationRuntime}' as effectiveIntegrationRuntime,\n'@{activity('CopyFileToFtpBasic').output.executionDetails[0].source}' as SourceType,\n'@{activity('CopyFileToFtpBasic').output.executionDetails[0].sink}' as SinkType,\n'@{activity('CopyFileToFtpBasic').output.executionDetails[0].status}' as ExecutionStatus,\n'@{activity('CopyFileToFtpBasic').output.executionDetails[0].start}' as CopyActivityStartTime,\n'@{utcnow()}' as CopyActivityEndTime,\n'@{activity('CopyFileToFtpBasic').output.executionDetails[0].detailedDurations.queuingDuration}' as CopyActivityQueuingDurationInSecs,\n'@{activity('CopyFileToFtpBasic').output.executionDetails[0].detailedDurations.timeToFirstByte}' as CopyActivityPreCopyScriptDurationInSecs,\n'@{activity('CopyFileToFtpBasic').output.executionDetails[0].detailedDurations.transferDuration}' as CopyActivityTransferDurationInSecs,\n'@{replace(activity('CopyFileToFtpBasic').output.errors[0].Message,'''','')}' as ErrorMessage",
+													"type": "Expression"
+												},
+												"queryTimeout": "02:00:00",
+												"partitionOption": "None"
+											},
+											"sink": {
+												"type": "AzureSqlSink",
+												"writeBehavior": "insert",
+												"sqlWriterUseTableLock": false
+											},
+											"enableStaging": false,
+											"translator": {
+												"type": "TabularTranslator",
+												"typeConversion": true,
+												"typeConversionSettings": {
+													"allowDataTruncation": true,
+													"treatBooleanAsNumber": false
+												}
+											}
+										},
+										"inputs": [
+											{
+												"referenceName": "dsAzureSQLParam",
+												"type": "DatasetReference",
+												"parameters": {
+													"pSecretName": {
+														"value": "@pipeline().parameters.pAzureSQLSecretName",
+														"type": "Expression"
+													},
+													"pSchemaName": {
+														"value": "@pipeline().parameters.pAzureSQLSchemaName",
+														"type": "Expression"
+													},
+													"pTableName": {
+														"value": "@pipeline().parameters.pAzureSQLTableName",
+														"type": "Expression"
+													}
+												}
+											}
+										],
+										"outputs": [
+											{
+												"referenceName": "dsAzureSQLParam",
+												"type": "DatasetReference",
+												"parameters": {
+													"pSecretName": {
+														"value": "@pipeline().parameters.pAzureSQLSecretName",
+														"type": "Expression"
+													},
+													"pSchemaName": {
+														"value": "@item().AuditSchemaName",
+														"type": "Expression"
+													},
+													"pTableName": {
+														"value": "@item().AuditTableName",
+														"type": "Expression"
+													}
+												}
+											}
+										]
+									}
+								]
+							}
+						},
+						{
+							"name": "SetProcessStartDate",
+							"type": "SetVariable",
+							"dependsOn": [
+								{
+									"activity": "SetGeneratedVolumePath",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "vProcessStartDate",
+								"value": {
+									"value": "@formatDateTime(convertTimeZone(utcnow(), 'UTC', 'Central Standard Time'), 'yyyy-MM-dd HH:mm:ss')\n",
+									"type": "Expression"
+								}
+							}
+						},
+						{
+							"name": "UpdateControlTable",
+							"type": "Script",
+							"dependsOn": [
+								{
+									"activity": "Copy Activity",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"linkedServiceName": {
+								"referenceName": "lnkAzureSqlParameterized",
+								"type": "LinkedServiceReference",
+								"parameters": {
+									"SecretName": "DLSqlCntrlConn"
+								}
+							},
+							"typeProperties": {
+								"scripts": [
+									{
+										"type": "Query",
+										"text": {
+											"value": "UPDATE etl.ControlTableFileToFTP SET PipelineLastRunDateTime = '@{variables('vProcessStartDate')}' WHERE TriggerName = '@{pipeline().parameters.pTriggerName}' and NotebookPath = '@{item().NotebookPath}' and ConnectionDetailsId = '@{item().ConnectionDetailsId}';\n",
+											"type": "Expression"
+										}
+									}
+								],
+								"scriptBlockExecutionTimeout": "02:00:00"
+							}
+						},
+						{
+							"name": "SetGeneratedAdlsFilePath",
+							"description": "This path is based on the connection table adls path information and here in pipeline we append 'output/' folder.",
+							"type": "SetVariable",
+							"dependsOn": [
+								{
+									"activity": "SetProcessName",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "vGeneratedAdlsFilePath",
+								"value": {
+									"value": "@concat(item().AdlsBasePath,'output/',pipeline().parameters.pTriggerName, '/', variables('vCurrentDateTime'), '/',variables('vSetProcessName'),'/')",
+									"type": "Expression"
+								}
+							}
+						},
+						{
+							"name": "SetGeneratedVolumePath",
+							"description": "This path is based on the connection table volume path information and here in pipeline we append 'output/' folder.",
+							"type": "SetVariable",
+							"dependsOn": [
+								{
+									"activity": "SetGeneratedAdlsFilePath",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "vGeneratedVolumePath",
+								"value": {
+									"value": "@concat(item().VolumePath,item().VolumeName,'/','output/',\n    pipeline().parameters.pTriggerName,'/',variables('vCurrentDateTime'),'/',variables('vSetProcessName'),'/')",
+									"type": "Expression"
+								}
+							}
+						},
+						{
+							"name": "SetProcessName",
+							"type": "SetVariable",
+							"dependsOn": [],
+							"policy": {
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "vSetProcessName",
+								"value": {
+									"value": "@replace(toLower(split(item().NotebookPath, '/')[sub(length(split(item().NotebookPath, '/')), 1)]),' ','_')\n",
+									"type": "Expression"
+								}
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "SetCurrentDateTime",
+				"type": "SetVariable",
+				"dependsOn": [],
+				"policy": {
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "vCurrentDateTime",
+					"value": {
+						"value": "@formatDateTime(convertTimeZone(utcnow(), 'UTC', 'Central Standard Time'), 'yyyy/MM/dd_HH_mm')\n",
+						"type": "Expression"
+					}
+				}
+			}
+		],
+		"parameters": {
+			"pAzureSQLSecretName": {
+				"type": "string",
+				"defaultValue": "DLSqlCntrlConn"
+			},
+			"pAzureSQLSchemaName": {
+				"type": "string",
+				"defaultValue": "etl"
+			},
+			"pAzureSQLTableName": {
+				"type": "string",
+				"defaultValue": "ControlTableFileToFTP"
+			},
+			"pTriggerName": {
+				"type": "string",
+				"defaultValue": "trgVaricentDtProLowes"
+			}
+		},
+		"variables": {
+			"vGeneratedAdlsFilePath": {
+				"type": "String"
+			},
+			"vGeneratedVolumePath": {
+				"type": "String"
+			},
+			"vCurrentDateTime": {
+				"type": "String"
+			},
+			"vProcessStartDate": {
+				"type": "String"
+			},
+			"vSetProcessName": {
+				"type": "String"
+			}
+		},
+		"folder": {
+			"name": "DataLake"
+		},
+		"annotations": []
+	}
+}
